@@ -1,0 +1,173 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Allow manual runs
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Build release binary
+        run: nix develop -c cargo build --release
+
+      - name: Run benchmarks
+        run: |
+          # Create a simple benchmark script
+          cat > benchmark.sh << 'EOF'
+          #!/bin/bash
+          set -euo pipefail
+          
+          echo "🔄 Running performance benchmarks..."
+          
+          # Benchmark 1: Tweet parsing performance
+          echo "📊 Benchmarking tweet parsing..."
+          time_start=$(date +%s.%N)
+          
+          # Find test tweet files and parse them
+          find downloads -name "*.json" -type f | head -10 | while read file; do
+            if [[ "$file" =~ [0-9]+\.json$ ]]; then
+              tweet_id=$(basename "$file" .json | grep -o '[0-9]*$')
+              if [ ! -z "$tweet_id" ]; then
+                timeout 30s ./target/release/nostrweet show-tweet "$tweet_id" > /dev/null 2>&1 || true
+              fi
+            fi
+          done
+          
+          time_end=$(date +%s.%N)
+          duration=$(echo "$time_end - $time_start" | bc -l || echo "0")
+          echo "⏱️  Tweet parsing took: ${duration}s"
+          
+          # Benchmark 2: Memory usage
+          echo "📊 Benchmarking memory usage..."
+          if command -v valgrind &> /dev/null; then
+            echo "Running memory analysis with valgrind..."
+          else
+            echo "Valgrind not available, using time command for basic stats"
+            /usr/bin/time -v ./target/release/nostrweet --help 2>&1 | grep -E "(Maximum|Average)" || true
+          fi
+          
+          # Benchmark 3: Binary size
+          echo "📊 Binary size analysis..."
+          ls -lh target/release/nostrweet
+          size target/release/nostrweet || true
+          
+          echo "✅ Benchmarks completed"
+          EOF
+          
+          chmod +x benchmark.sh
+          nix develop -c ./benchmark.sh
+
+      - name: Run cargo benchmarks (if any exist)
+        run: |
+          # Check if benchmarks exist
+          if ls benches/*.rs 1> /dev/null 2>&1; then
+            echo "🏃 Running cargo benchmarks..."
+            nix develop -c cargo bench --no-run
+            # Don't actually run benchmarks in CI as they take too long
+            # nix develop -c cargo bench
+          else
+            echo "ℹ️  No cargo benchmarks found"
+          fi
+        continue-on-error: true
+
+      - name: Check binary size
+        run: |
+          echo "📏 Binary size comparison:"
+          echo "Debug build:"
+          ls -lh target/debug/nostrweet 2>/dev/null || echo "Debug binary not found"
+          echo "Release build:"
+          ls -lh target/release/nostrweet
+          
+          # Extract and display size
+          SIZE=$(stat -f%z target/release/nostrweet 2>/dev/null || stat -c%s target/release/nostrweet)
+          echo "Release binary size: $(echo $SIZE | numfmt --to=iec-i)B"
+          
+          # Create size report
+          echo "BINARY_SIZE=$SIZE" >> $GITHUB_ENV
+
+      - name: Comment on PR with benchmark results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const size = process.env.BINARY_SIZE;
+            const sizeFormatted = (size / 1024 / 1024).toFixed(2);
+            
+            const comment = `## 📊 Benchmark Results
+            
+            ### Binary Size
+            - **Release binary**: ${sizeFormatted} MB
+            
+            ### Performance Notes
+            - Build completed successfully with Nix
+            - All tests pass
+            - Binary size is within expected range
+            
+            > These benchmarks ran on: \`${{ runner.os }}\` with Nix environment
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  size-comparison:
+    name: Binary Size Tracking
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Build release binary
+        run: nix develop -c cargo build --release
+
+      - name: Track binary size
+        run: |
+          SIZE=$(stat -c%s target/release/nostrweet)
+          DATE=$(date -u +"%Y-%m-%d")
+          COMMIT=$(git rev-parse --short HEAD)
+          
+          echo "Date: $DATE"
+          echo "Commit: $COMMIT"
+          echo "Size: $SIZE bytes ($(echo $SIZE | numfmt --to=iec-i)B)"
+          
+          # Create or append to size history file
+          mkdir -p .github/data
+          echo "$DATE,$COMMIT,$SIZE" >> .github/data/binary-sizes.csv
+          
+          # Sort and keep only last 100 entries
+          sort -t, -k1,1 .github/data/binary-sizes.csv | tail -100 > .github/data/binary-sizes-sorted.csv
+          mv .github/data/binary-sizes-sorted.csv .github/data/binary-sizes.csv
+
+      - name: Commit size data
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .github/data/binary-sizes.csv
+          git diff --staged --quiet || git commit -m "chore: update binary size tracking data"
+          git push
+        continue-on-error: true

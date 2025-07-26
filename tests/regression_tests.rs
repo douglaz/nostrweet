@@ -1,0 +1,1241 @@
+use nostr_sdk::{EventBuilder, Keys, Kind, Tag, Timestamp};
+use nostrweet::nostr::format_tweet_as_nostr_content;
+use nostrweet::twitter::Tweet;
+use serde_json::json;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Test data based on real tweet structures to ensure consistent parsing
+mod fixtures {
+    use super::*;
+
+    /// A simple tweet with text only
+    pub fn simple_tweet() -> Tweet {
+        serde_json::from_value(json!({
+            "id": "1234567890123456789",
+            "text": "Hello Twitter! This is a test tweet.",
+            "created_at": "2023-01-15T10:30:00.000Z",
+            "author_id": "987654321",
+            "author": {
+                "id": "987654321",
+                "username": "testuser",
+                "name": "Test User"
+            }
+        }))
+        .unwrap()
+    }
+
+    /// A tweet with a URL that should be expanded
+    pub fn tweet_with_url() -> Tweet {
+        serde_json::from_value(json!({
+            "id": "1234567890123456790",
+            "text": "Check out this article: https://t.co/abc123def",
+            "created_at": "2023-01-15T11:00:00.000Z",
+            "author_id": "987654321",
+            "author": {
+                "id": "987654321",
+                "username": "testuser",
+                "name": "Test User"
+            },
+            "entities": {
+                "urls": [{
+                    "url": "https://t.co/abc123def",
+                    "expanded_url": "https://example.com/interesting-article",
+                    "display_url": "example.com/interesting-ar..."
+                }]
+            }
+        }))
+        .unwrap()
+    }
+
+    /// A retweet
+    pub fn retweet() -> Tweet {
+        serde_json::from_value(json!({
+            "id": "1234567890123456791",
+            "text": "RT @originaluser: This is the original tweet content that was retweeted",
+            "created_at": "2023-01-15T12:00:00.000Z",
+            "author_id": "987654321",
+            "author": {
+                "id": "987654321",
+                "username": "retweeter",
+                "name": "Retweeting User"
+            },
+            "referenced_tweets": [{
+                "type": "retweeted",
+                "id": "1234567890123456700",
+                "data": {
+                    "id": "1234567890123456700",
+                    "text": "This is the original tweet content that was retweeted",
+                    "created_at": "2023-01-15T09:00:00.000Z",
+                    "author_id": "111111111",
+                    "author": {
+                        "id": "111111111",
+                        "username": "originaluser",
+                        "name": "Original User"
+                    }
+                }
+            }]
+        }))
+        .unwrap()
+    }
+
+    /// A reply tweet
+    pub fn reply_tweet() -> Tweet {
+        serde_json::from_value(json!({
+            "id": "1234567890123456792",
+            "text": "I agree with this point!",
+            "created_at": "2023-01-15T13:00:00.000Z",
+            "author_id": "987654321",
+            "author": {
+                "id": "987654321",
+                "username": "replier",
+                "name": "Reply User"
+            },
+            "referenced_tweets": [{
+                "type": "replied_to",
+                "id": "1234567890123456600",
+                "data": {
+                    "id": "1234567890123456600",
+                    "text": "Here's an interesting observation about the current state of technology.",
+                    "created_at": "2023-01-15T08:00:00.000Z",
+                    "author_id": "222222222",
+                    "author": {
+                        "id": "222222222",
+                        "username": "opuser",
+                        "name": "Original Poster"
+                    }
+                }
+            }]
+        }))
+        .unwrap()
+    }
+
+    /// A quoted tweet
+    pub fn quoted_tweet() -> Tweet {
+        serde_json::from_value(json!({
+            "id": "1234567890123456793",
+            "text": "This is worth sharing:",
+            "created_at": "2023-01-15T14:00:00.000Z",
+            "author_id": "987654321",
+            "author": {
+                "id": "987654321",
+                "username": "quoter",
+                "name": "Quote User"
+            },
+            "referenced_tweets": [{
+                "type": "quoted",
+                "id": "1234567890123456500",
+                "data": {
+                    "id": "1234567890123456500",
+                    "text": "Breaking: Important news about recent developments in the tech industry.",
+                    "created_at": "2023-01-15T07:00:00.000Z",
+                    "author_id": "333333333",
+                    "author": {
+                        "id": "333333333",
+                        "username": "newsaccount",
+                        "name": "News Account"
+                    }
+                }
+            }]
+        }))
+        .unwrap()
+    }
+
+    /// A long-form note tweet
+    pub fn note_tweet() -> Tweet {
+        serde_json::from_value(json!({
+            "id": "1234567890123456794",
+            "text": "🧵 A thread about Rust programming...",
+            "created_at": "2023-01-15T15:00:00.000Z",
+            "author_id": "987654321",
+            "author": {
+                "id": "987654321",
+                "username": "rustdev",
+                "name": "Rust Developer"
+            },
+            "note_tweet": {
+                "text": "🧵 A thread about Rust programming\n\nRust is a systems programming language that runs blazingly fast, prevents segfaults, and guarantees thread safety. Here's why it's becoming increasingly popular:\n\n1. Memory Safety: Rust's ownership system ensures memory safety without needing a garbage collector. This means you get the performance of C/C++ with the safety guarantees that prevent common bugs.\n\n2. Concurrency: Rust's type system and ownership rules prevent data races at compile time. This makes concurrent programming much safer and easier to reason about.\n\n3. Zero-Cost Abstractions: Rust provides high-level ergonomics without sacrificing low-level control. You can write expressive code that compiles down to efficient machine code.\n\n4. Great Tooling: Cargo (Rust's package manager), rustfmt (code formatter), and clippy (linter) provide an excellent developer experience out of the box.\n\n5. Growing Ecosystem: The Rust ecosystem is rapidly expanding with high-quality libraries for web development, embedded systems, game development, and more.\n\nIf you're interested in learning Rust, I recommend starting with the official Rust Book (available free online) and working through Rustlings exercises. The community is welcoming and helpful!\n\n#RustLang #Programming #SystemsProgramming"
+            }
+        }))
+        .unwrap()
+    }
+
+    /// Real douglaz tweet - simple reply (from 2025-06-01)
+    pub fn douglaz_simple_reply() -> Tweet {
+        serde_json::from_str(r#"{
+            "id": "1929266300380967406",
+            "text": "@naoTankoOBostil @ancapmilavargas @ojedabtc Bons tempos",
+            "author": {
+                "id": "3916631",
+                "name": "douglaz",
+                "username": "douglaz",
+                "profile_image_url": "https://pbs.twimg.com/profile_images/1639377321386823680/UVcJ5dbZ_normal.jpg"
+            },
+            "referenced_tweets": [
+                {
+                    "id": "1929036772777787461",
+                    "type": "replied_to"
+                }
+            ],
+            "attachments": null,
+            "created_at": "2025-06-01T19:58:24.000Z",
+            "entities": {
+                "urls": null,
+                "mentions": [
+                    {
+                        "username": "naoTankoOBostil"
+                    },
+                    {
+                        "username": "ancapmilavargas"
+                    },
+                    {
+                        "username": "ojedabtc"
+                    }
+                ],
+                "hashtags": null
+            },
+            "includes": {
+                "media": null,
+                "users": null,
+                "tweets": null
+            },
+            "author_id": "3916631"
+        }"#).unwrap()
+    }
+
+    /// Real douglaz tweet - with URL expansion (from 2023-04-09)
+    pub fn douglaz_tweet_with_url() -> Tweet {
+        serde_json::from_str(r#"{
+            "id": "1645195402788892674",
+            "text": "@unknown_BTC_usr Discordo, descentralização é um número real, principalmente quando você modela o sistema como se fosse um grafo. Veja por exemplo https://t.co/THxQa36439",
+            "author": {
+                "id": "3916631",
+                "name": "douglaz",
+                "username": "douglaz",
+                "profile_image_url": "https://pbs.twimg.com/profile_images/1639377321386823680/UVcJ5dbZ_normal.jpg"
+            },
+            "referenced_tweets": [
+                {
+                    "id": "1645149404083494917",
+                    "type": "replied_to"
+                }
+            ],
+            "attachments": null,
+            "created_at": "2023-04-09T22:42:04.000Z",
+            "entities": {
+                "urls": [
+                    {
+                        "url": "https://t.co/THxQa36439",
+                        "expanded_url": "https://en.wikipedia.org/wiki/Clustering_coefficient",
+                        "display_url": "en.wikipedia.org/wiki/Clusterin…"
+                    }
+                ],
+                "mentions": [
+                    {
+                        "username": "unknown_BTC_usr"
+                    }
+                ],
+                "hashtags": null
+            },
+            "includes": {
+                "media": null,
+                "users": null,
+                "tweets": null
+            },
+            "author_id": "3916631"
+        }"#).unwrap()
+    }
+
+    /// Real douglaz tweet - Planet of Apes reply (from 2025-06-01)
+    pub fn douglaz_planet_apes_reply() -> Tweet {
+        serde_json::from_str(r#"{
+            "id": "1929221881929843016",
+            "text": "@AMAZlNGNATURE So if we want Planet of Apes to happen, we know what to do...",
+            "author": {
+                "id": "3916631",
+                "name": "douglaz",
+                "username": "douglaz",
+                "profile_image_url": "https://pbs.twimg.com/profile_images/1639377321386823680/UVcJ5dbZ_normal.jpg"
+            },
+            "referenced_tweets": [
+                {
+                    "id": "1929216043643273547",
+                    "type": "replied_to"
+                }
+            ],
+            "attachments": null,
+            "created_at": "2025-06-01T17:01:54.000Z",
+            "entities": {
+                "urls": null,
+                "mentions": [
+                    {
+                        "username": "AMAZlNGNATURE"
+                    }
+                ],
+                "hashtags": null
+            },
+            "includes": {
+                "media": null,
+                "users": null,
+                "tweets": null
+            },
+            "author_id": "3916631"
+        }"#).unwrap()
+    }
+}
+
+#[test]
+fn test_parse_simple_tweet() {
+    let tweet = fixtures::simple_tweet();
+    pretty_assertions::assert_eq!(tweet.id, "1234567890123456789");
+    pretty_assertions::assert_eq!(tweet.text, "Hello Twitter! This is a test tweet.");
+    pretty_assertions::assert_eq!(tweet.author.username, "testuser");
+}
+
+#[test]
+fn test_parse_tweet_with_url() {
+    let tweet = fixtures::tweet_with_url();
+    assert!(tweet.entities.is_some());
+    let entities = tweet.entities.as_ref().unwrap();
+    assert!(entities.urls.is_some());
+    let urls = entities.urls.as_ref().unwrap();
+    pretty_assertions::assert_eq!(urls.len(), 1);
+    pretty_assertions::assert_eq!(
+        urls[0].expanded_url,
+        "https://example.com/interesting-article"
+    );
+}
+
+#[test]
+fn test_format_simple_tweet_nostr() {
+    let tweet = fixtures::simple_tweet();
+    let content = format_tweet_as_nostr_content(&tweet, &[]);
+
+    assert!(content.contains("🐦 @testuser:"));
+    assert!(content.contains("Hello Twitter! This is a test tweet."));
+    // Check for the twitter status URL in the content
+    assert!(content.contains("Original tweet: https://twitter.com/i/status/1234567890123456789"));
+}
+
+#[test]
+fn test_format_tweet_with_url_nostr() {
+    let tweet = fixtures::tweet_with_url();
+    let content = format_tweet_as_nostr_content(&tweet, &[]);
+
+    assert!(content.contains("🐦 @testuser:"));
+    assert!(content.contains("Check out this article: [example.com/interesting-ar...](https://example.com/interesting-article)"));
+    assert!(!content.contains("https://t.co/abc123def")); // Should be replaced
+}
+
+#[test]
+fn test_format_retweet_nostr() {
+    let tweet = fixtures::retweet();
+    let content = format_tweet_as_nostr_content(&tweet, &[]);
+
+    assert!(content.contains("🔁 @retweeter retweeted @originaluser:"));
+    assert!(content.contains("This is the original tweet content that was retweeted"));
+    assert!(content.contains("https://twitter.com/i/status/1234567890123456700"));
+}
+
+#[test]
+fn test_format_reply_nostr() {
+    let tweet = fixtures::reply_tweet();
+    let content = format_tweet_as_nostr_content(&tweet, &[]);
+
+    assert!(content.contains("🐦 @replier:"));
+    assert!(content.contains("I agree with this point!"));
+    assert!(content.contains("↩️ Reply to @opuser:"));
+    assert!(content.contains("Here's an interesting observation"));
+}
+
+#[test]
+fn test_format_quoted_tweet_nostr() {
+    let tweet = fixtures::quoted_tweet();
+    let content = format_tweet_as_nostr_content(&tweet, &[]);
+
+    assert!(content.contains("🐦 @quoter:"));
+    assert!(content.contains("This is worth sharing:"));
+    assert!(content.contains("💬 Quote of @newsaccount:"));
+    assert!(content.contains("Breaking: Important news"));
+}
+
+#[test]
+fn test_format_note_tweet_nostr() {
+    let tweet = fixtures::note_tweet();
+    let content = format_tweet_as_nostr_content(&tweet, &[]);
+
+    assert!(content.contains("🐦 @rustdev:"));
+    // Should contain the full note_tweet text, not the truncated version
+    assert!(content.contains("Rust is a systems programming language"));
+    assert!(content.contains("Memory Safety:"));
+    assert!(content.contains("Concurrency:"));
+    assert!(content.contains("#RustLang #Programming"));
+}
+
+#[test]
+fn test_tweet_with_media_urls() {
+    let tweet = fixtures::simple_tweet();
+    let media_urls = vec![
+        "https://blossom.example.com/sha256/abc123.jpg".to_string(),
+        "https://blossom.example.com/sha256/def456.mp4".to_string(),
+    ];
+    let content = format_tweet_as_nostr_content(&tweet, &media_urls);
+
+    assert!(content.contains("https://blossom.example.com/sha256/abc123.jpg"));
+    assert!(content.contains("https://blossom.example.com/sha256/def456.mp4"));
+}
+
+/// Test that formatting is consistent and predictable
+#[test]
+fn test_format_consistency() {
+    let tweet = fixtures::simple_tweet();
+    let content1 = format_tweet_as_nostr_content(&tweet, &[]);
+    let content2 = format_tweet_as_nostr_content(&tweet, &[]);
+
+    // Same input should produce same output
+    pretty_assertions::assert_eq!(content1, content2);
+}
+
+/// Test edge cases
+#[test]
+fn test_empty_username() {
+    let mut tweet = fixtures::simple_tweet();
+    tweet.author.username = String::new();
+    let content = format_tweet_as_nostr_content(&tweet, &[]);
+
+    // Should fall back to user ID
+    assert!(content.contains("🐦 User 987654321:"));
+}
+
+#[test]
+fn test_missing_author_id() {
+    let mut tweet = fixtures::simple_tweet();
+    tweet.author.username = String::new();
+    tweet.author_id = None;
+    let content = format_tweet_as_nostr_content(&tweet, &[]);
+
+    // Should fall back to generic "Tweet:"
+    assert!(content.contains("🐦 Tweet:"));
+}
+
+/// Helper function to create tags for a nostr event
+fn create_nostr_event_tags(
+    tweet_id: &str,
+    media_urls: &[String],
+) -> Result<Vec<Tag>, Box<dyn std::error::Error>> {
+    let mut tags = Vec::new();
+
+    // Add tweet reference tag
+    let twitter_url = format!("https://twitter.com/i/status/{tweet_id}");
+    tags.push(Tag::parse(vec!["r", &twitter_url])?);
+
+    // Add media tags if present
+    for url in media_urls {
+        tags.push(Tag::parse(vec!["r", url])?);
+    }
+
+    Ok(tags)
+}
+
+/// Helper function to create a complete Nostr event from a tweet
+async fn create_nostr_event_from_tweet(
+    tweet: &Tweet,
+    media_urls: &[String],
+    keys: &Keys,
+) -> Result<nostr_sdk::Event, Box<dyn std::error::Error>> {
+    let content = format_tweet_as_nostr_content(tweet, media_urls);
+
+    // Parse the created_at timestamp
+    let timestamp = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&tweet.created_at) {
+        Timestamp::from(dt.timestamp() as u64)
+    } else {
+        // Fallback to current time
+        Timestamp::from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
+    };
+
+    // Create tags
+    let tags = create_nostr_event_tags(&tweet.id, media_urls)?;
+
+    // Create event builder
+    let mut builder = EventBuilder::new(Kind::TextNote, content).custom_created_at(timestamp);
+
+    // Add tags
+    for tag in tags {
+        builder = builder.tag(tag);
+    }
+
+    // Sign the event
+    let event = builder.sign(keys).await?;
+
+    Ok(event)
+}
+
+// Comprehensive regression tests with real douglaz tweets
+
+#[tokio::test]
+async fn test_douglaz_simple_reply_full_nostr_event() {
+    let tweet = fixtures::douglaz_simple_reply();
+    let keys = Keys::generate();
+    let media_urls = vec![];
+
+    let event = create_nostr_event_from_tweet(&tweet, &media_urls, &keys)
+        .await
+        .expect("Failed to create Nostr event");
+
+    // Verify event structure
+    pretty_assertions::assert_eq!(event.kind, Kind::TextNote);
+    pretty_assertions::assert_eq!(event.pubkey, keys.public_key());
+
+    // Verify content formatting
+    let content = &event.content;
+    assert!(content.contains("🐦 @douglaz:"));
+    assert!(content.contains("@naoTankoOBostil @ancapmilavargas @ojedabtc Bons tempos"));
+    assert!(content.contains("Original tweet: https://twitter.com/i/status/1929266300380967406"));
+
+    // Verify tags
+    let has_twitter_ref = event.tags.iter().any(|tag| {
+        let tag_vec = (*tag).clone().to_vec();
+        tag_vec.len() >= 2 && tag_vec[0] == "r" && tag_vec[1].contains("status/1929266300380967406")
+    });
+    assert!(has_twitter_ref, "Event should have Twitter reference tag");
+
+    // Verify timestamp (should match tweet creation time)
+    let expected_timestamp = chrono::DateTime::parse_from_rfc3339("2025-06-01T19:58:24.000Z")
+        .unwrap()
+        .timestamp() as u64;
+    pretty_assertions::assert_eq!(event.created_at.as_u64(), expected_timestamp);
+
+    // Verify the event can be serialized/deserialized
+    let json = serde_json::to_string(&event).expect("Failed to serialize event");
+    let _deserialized: nostr_sdk::Event =
+        serde_json::from_str(&json).expect("Failed to deserialize event");
+}
+
+#[tokio::test]
+async fn test_douglaz_url_expansion_full_nostr_event() {
+    let tweet = fixtures::douglaz_tweet_with_url();
+    let keys = Keys::generate();
+    let media_urls = vec![];
+
+    let event = create_nostr_event_from_tweet(&tweet, &media_urls, &keys)
+        .await
+        .expect("Failed to create Nostr event");
+
+    // Verify event structure
+    pretty_assertions::assert_eq!(event.kind, Kind::TextNote);
+    pretty_assertions::assert_eq!(event.pubkey, keys.public_key());
+
+    // Verify content formatting with URL expansion
+    let content = &event.content;
+    assert!(content.contains("🐦 @douglaz:"));
+    assert!(content.contains("@unknown_BTC_usr Discordo, descentralização é um número real"));
+    assert!(content.contains(
+        "[en.wikipedia.org/wiki/Clusterin…](https://en.wikipedia.org/wiki/Clustering_coefficient)"
+    ));
+    assert!(!content.contains("https://t.co/THxQa36439")); // Should be expanded
+    assert!(content.contains("Original tweet: https://twitter.com/i/status/1645195402788892674"));
+
+    // Verify tags
+    let has_twitter_ref = event.tags.iter().any(|tag| {
+        let tag_vec = (*tag).clone().to_vec();
+        tag_vec.len() >= 2 && tag_vec[0] == "r" && tag_vec[1].contains("status/1645195402788892674")
+    });
+    assert!(has_twitter_ref, "Event should have Twitter reference tag");
+
+    // Verify timestamp matches tweet creation time
+    let expected_timestamp = chrono::DateTime::parse_from_rfc3339("2023-04-09T22:42:04.000Z")
+        .unwrap()
+        .timestamp() as u64;
+    pretty_assertions::assert_eq!(event.created_at.as_u64(), expected_timestamp);
+
+    // Verify the event is deterministic - same tweet should produce same content
+    let event2 = create_nostr_event_from_tweet(&tweet, &media_urls, &keys)
+        .await
+        .expect("Failed to create second Nostr event");
+    pretty_assertions::assert_eq!(event.content, event2.content);
+    pretty_assertions::assert_eq!(event.created_at, event2.created_at);
+}
+
+#[tokio::test]
+async fn test_douglaz_planet_apes_reply_full_nostr_event() {
+    let tweet = fixtures::douglaz_planet_apes_reply();
+    let keys = Keys::generate();
+    let media_urls = vec![];
+
+    let event = create_nostr_event_from_tweet(&tweet, &media_urls, &keys)
+        .await
+        .expect("Failed to create Nostr event");
+
+    // Verify event structure
+    pretty_assertions::assert_eq!(event.kind, Kind::TextNote);
+    pretty_assertions::assert_eq!(event.pubkey, keys.public_key());
+
+    // Verify content formatting
+    let content = &event.content;
+    assert!(content.contains("🐦 @douglaz:"));
+    assert!(content
+        .contains("@AMAZlNGNATURE So if we want Planet of Apes to happen, we know what to do..."));
+    assert!(content.contains("Original tweet: https://twitter.com/i/status/1929221881929843016"));
+
+    // Verify tags
+    let has_twitter_ref = event.tags.iter().any(|tag| {
+        let tag_vec = (*tag).clone().to_vec();
+        tag_vec.len() >= 2 && tag_vec[0] == "r" && tag_vec[1].contains("status/1929221881929843016")
+    });
+    assert!(has_twitter_ref, "Event should have Twitter reference tag");
+
+    // Verify timestamp
+    let expected_timestamp = chrono::DateTime::parse_from_rfc3339("2025-06-01T17:01:54.000Z")
+        .unwrap()
+        .timestamp() as u64;
+    pretty_assertions::assert_eq!(event.created_at.as_u64(), expected_timestamp);
+
+    // Verify event has proper structure for a reply
+    let json = serde_json::to_string_pretty(&event).expect("Failed to serialize event");
+    // The JSON representation uses numeric values for Kind, so check for 1 (TextNote)
+    assert!(json.contains("\"kind\": 1") || json.contains("\"kind\":1"));
+
+    // Verify the event can be round-tripped through JSON
+    let _deserialized: nostr_sdk::Event =
+        serde_json::from_str(&json).expect("Failed to deserialize event");
+}
+
+#[tokio::test]
+async fn test_nostr_event_with_media_urls() {
+    let tweet = fixtures::douglaz_simple_reply();
+    let keys = Keys::generate();
+    let media_urls = vec![
+        "https://blossom.example.com/sha256/abc123.jpg".to_string(),
+        "https://blossom.example.com/sha256/def456.mp4".to_string(),
+    ];
+
+    let event = create_nostr_event_from_tweet(&tweet, &media_urls, &keys)
+        .await
+        .expect("Failed to create Nostr event");
+
+    // Verify content includes media URLs
+    let content = &event.content;
+    assert!(content.contains("https://blossom.example.com/sha256/abc123.jpg"));
+    assert!(content.contains("https://blossom.example.com/sha256/def456.mp4"));
+
+    // Verify tags include media references
+    let has_image_ref = event.tags.iter().any(|tag| {
+        let tag_vec = (*tag).clone().to_vec();
+        tag_vec.len() >= 2 && tag_vec[0] == "r" && tag_vec[1].contains("abc123.jpg")
+    });
+    let has_video_ref = event.tags.iter().any(|tag| {
+        let tag_vec = (*tag).clone().to_vec();
+        tag_vec.len() >= 2 && tag_vec[0] == "r" && tag_vec[1].contains("def456.mp4")
+    });
+    assert!(has_image_ref, "Event should have image reference tag");
+    assert!(has_video_ref, "Event should have video reference tag");
+
+    // Should have both media tags plus the twitter reference tag
+    let r_tags_count = event
+        .tags
+        .iter()
+        .filter(|tag| {
+            let tag_vec = (*tag).clone().to_vec();
+            tag_vec.len() >= 2 && tag_vec[0] == "r"
+        })
+        .count();
+    pretty_assertions::assert_eq!(r_tags_count, 3); // 2 media + 1 twitter reference
+}
+
+#[tokio::test]
+async fn test_nostr_event_deterministic_creation() {
+    let tweet = fixtures::douglaz_tweet_with_url();
+    let keys = Keys::generate();
+    let media_urls = vec![];
+
+    // Create the same event multiple times
+    let event1 = create_nostr_event_from_tweet(&tweet, &media_urls, &keys)
+        .await
+        .expect("Failed to create first event");
+
+    let event2 = create_nostr_event_from_tweet(&tweet, &media_urls, &keys)
+        .await
+        .expect("Failed to create second event");
+
+    // Content and timestamp should be identical (deterministic based on tweet data)
+    pretty_assertions::assert_eq!(event1.content, event2.content);
+    pretty_assertions::assert_eq!(event1.created_at, event2.created_at);
+    pretty_assertions::assert_eq!(event1.kind, event2.kind);
+
+    // But event IDs will be different because they include the signature
+    // (since we're using the same keys, the signature depends on a random nonce)
+    // However, the base event structure should be the same
+
+    // Verify both events serialize to valid JSON
+    let json1 = serde_json::to_string_pretty(&event1).expect("Failed to serialize event1");
+    let json2 = serde_json::to_string_pretty(&event2).expect("Failed to serialize event2");
+
+    // Both should be valid Nostr events
+    let _: nostr_sdk::Event = serde_json::from_str(&json1).expect("Invalid event1 JSON");
+    let _: nostr_sdk::Event = serde_json::from_str(&json2).expect("Invalid event2 JSON");
+}
+
+// Regression tests for show-tweet command
+
+#[tokio::test]
+async fn test_show_tweet_output_separation() {
+    use serde_json::Value;
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    // Create a temporary directory for this test
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+
+    // Save a test tweet to the temp directory first
+    let tweet = fixtures::douglaz_simple_reply();
+    let tweet_path = temp_dir
+        .path()
+        .join("20250601_195824_douglaz_1929266300380967406.json");
+    let tweet_json = serde_json::to_string_pretty(&tweet).expect("Failed to serialize tweet");
+    std::fs::write(&tweet_path, tweet_json).expect("Failed to write test tweet");
+
+    // Run the show-tweet command and capture both stdout and stderr
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "show-tweet",
+            "1929266300380967406",
+            "--output-dir",
+            temp_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    // Check that the command succeeded
+    assert!(
+        output.status.success(),
+        "Command failed with stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Parse stdout as JSON
+    let stdout_str = String::from_utf8(output.stdout).expect("Invalid UTF-8 in stdout");
+    let json: Value = serde_json::from_str(&stdout_str).expect("stdout should be valid JSON");
+
+    // Verify the JSON structure has both twitter and nostr keys
+    assert!(
+        json.get("twitter").is_some(),
+        "JSON should have 'twitter' key"
+    );
+    assert!(json.get("nostr").is_some(), "JSON should have 'nostr' key");
+
+    // Verify twitter data
+    let twitter_data = &json["twitter"];
+    pretty_assertions::assert_eq!(twitter_data["id"], "1929266300380967406");
+    pretty_assertions::assert_eq!(twitter_data["author"]["username"], "douglaz");
+
+    // Verify nostr data
+    let nostr_data = &json["nostr"];
+    assert!(
+        nostr_data.get("event").is_some(),
+        "Nostr data should have 'event' key"
+    );
+    assert!(
+        nostr_data.get("metadata").is_some(),
+        "Nostr data should have 'metadata' key"
+    );
+
+    let nostr_event = &nostr_data["event"];
+    pretty_assertions::assert_eq!(nostr_event["kind"], 1); // TextNote kind
+    assert!(nostr_event.get("content").is_some());
+    assert!(nostr_event.get("pubkey").is_some());
+    assert!(nostr_event.get("sig").is_some());
+    assert!(nostr_event.get("tags").is_some());
+
+    let nostr_metadata = &nostr_data["metadata"];
+    pretty_assertions::assert_eq!(nostr_metadata["original_tweet_id"], "1929266300380967406");
+    pretty_assertions::assert_eq!(nostr_metadata["original_author"], "douglaz");
+
+    // Check stderr contains logging messages (convert to string for analysis)
+    let stderr_str = String::from_utf8(output.stderr).expect("Invalid UTF-8 in stderr");
+    assert!(
+        stderr_str.contains("Showing tweet"),
+        "stderr should contain log messages"
+    );
+    assert!(
+        stderr_str.contains("Found cached tweet") || stderr_str.contains("Tweet not in cache"),
+        "stderr should contain processing messages"
+    );
+}
+
+#[tokio::test]
+async fn test_show_tweet_stdout_is_pure_json() {
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    // Create a temporary directory for this test
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+
+    // Save a test tweet to the temp directory first
+    let tweet = fixtures::douglaz_tweet_with_url();
+    let tweet_path = temp_dir
+        .path()
+        .join("20230409_224204_douglaz_1645195402788892674.json");
+    let tweet_json = serde_json::to_string_pretty(&tweet).expect("Failed to serialize tweet");
+    std::fs::write(&tweet_path, tweet_json).expect("Failed to write test tweet");
+
+    // Run the show-tweet command and capture stdout only
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "show-tweet",
+            "1645195402788892674",
+            "--output-dir",
+            temp_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    // Check that the command succeeded
+    assert!(output.status.success(), "Command failed");
+
+    let stdout_str = String::from_utf8(output.stdout).expect("Invalid UTF-8 in stdout");
+
+    // Verify stdout contains no log formatting or non-JSON content
+    assert!(
+        !stdout_str.contains("INFO"),
+        "stdout should not contain log level indicators"
+    );
+    assert!(
+        !stdout_str.contains("==="),
+        "stdout should not contain section headers"
+    );
+    assert!(
+        !stdout_str.contains("Showing tweet"),
+        "stdout should not contain log messages"
+    );
+    assert!(
+        !stdout_str.contains("Found cached"),
+        "stdout should not contain progress messages"
+    );
+
+    // Verify it's valid JSON by parsing it
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout_str).expect("stdout should be parseable as JSON");
+
+    // Verify it has the expected top-level structure
+    assert!(json.is_object(), "JSON should be an object");
+    assert!(json.get("twitter").is_some(), "Should have twitter key");
+    assert!(json.get("nostr").is_some(), "Should have nostr key");
+
+    // Verify URL expansion works correctly
+    let twitter_text = json["twitter"]["text"].as_str().unwrap();
+    assert!(
+        twitter_text.contains("https://t.co/THxQa36439"),
+        "Original tweet should have t.co URL"
+    );
+
+    let nostr_content = json["nostr"]["event"]["content"].as_str().unwrap();
+    assert!(
+        nostr_content.contains("en.wikipedia.org/wiki/Clustering_coefficient"),
+        "Nostr content should have expanded URL"
+    );
+}
+
+#[tokio::test]
+async fn test_show_tweet_pretty_formatting() {
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    // Create a temporary directory for this test
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+
+    // Save a test tweet to the temp directory first
+    let tweet = fixtures::douglaz_planet_apes_reply();
+    let tweet_path = temp_dir
+        .path()
+        .join("20250601_170154_douglaz_1929221881929843016.json");
+    let tweet_json = serde_json::to_string_pretty(&tweet).expect("Failed to serialize tweet");
+    std::fs::write(&tweet_path, tweet_json).expect("Failed to write test tweet");
+
+    // Test with pretty=true (default)
+    let output_pretty = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "show-tweet",
+            "1929221881929843016",
+            "--output-dir",
+            temp_dir.path().to_str().unwrap(),
+            "--pretty",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(output_pretty.status.success(), "Pretty command failed");
+    let pretty_stdout = String::from_utf8(output_pretty.stdout).expect("Invalid UTF-8");
+
+    // Pretty output should have indentation and newlines
+    assert!(
+        pretty_stdout.contains("  "),
+        "Pretty output should have indentation"
+    );
+    assert!(
+        pretty_stdout.contains("\n"),
+        "Pretty output should have newlines"
+    );
+
+    // Test with compact format
+    let output_compact = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "show-tweet",
+            "1929221881929843016",
+            "--output-dir",
+            temp_dir.path().to_str().unwrap(),
+            "--compact",
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    assert!(output_compact.status.success(), "Compact command failed");
+    let compact_stdout = String::from_utf8(output_compact.stdout).expect("Invalid UTF-8");
+
+    // Compact output should be a single line
+    pretty_assertions::assert_eq!(
+        compact_stdout.lines().count(),
+        1,
+        "Compact output should be single line"
+    );
+
+    // Both should parse to the same JSON structure
+    let pretty_json: serde_json::Value = serde_json::from_str(&pretty_stdout).unwrap();
+    let compact_json: serde_json::Value = serde_json::from_str(&compact_stdout).unwrap();
+
+    // Compare the twitter data (should be identical)
+    pretty_assertions::assert_eq!(
+        pretty_json["twitter"],
+        compact_json["twitter"],
+        "Twitter data should be identical"
+    );
+
+    // Compare nostr event content and structure (but not cryptographic fields like id, pubkey, sig)
+    pretty_assertions::assert_eq!(
+        pretty_json["nostr"]["event"]["content"],
+        compact_json["nostr"]["event"]["content"],
+        "Nostr content should be identical"
+    );
+    pretty_assertions::assert_eq!(
+        pretty_json["nostr"]["event"]["kind"],
+        compact_json["nostr"]["event"]["kind"],
+        "Nostr kind should be identical"
+    );
+    pretty_assertions::assert_eq!(
+        pretty_json["nostr"]["event"]["created_at"],
+        compact_json["nostr"]["event"]["created_at"],
+        "Nostr timestamp should be identical"
+    );
+    pretty_assertions::assert_eq!(
+        pretty_json["nostr"]["event"]["tags"],
+        compact_json["nostr"]["event"]["tags"],
+        "Nostr tags should be identical"
+    );
+
+    // Compare metadata (excluding fields that depend on the generated keys)
+    pretty_assertions::assert_eq!(
+        pretty_json["nostr"]["metadata"]["original_tweet_id"],
+        compact_json["nostr"]["metadata"]["original_tweet_id"]
+    );
+    pretty_assertions::assert_eq!(
+        pretty_json["nostr"]["metadata"]["original_author"],
+        compact_json["nostr"]["metadata"]["original_author"]
+    );
+    pretty_assertions::assert_eq!(
+        pretty_json["nostr"]["metadata"]["created_at_human"],
+        compact_json["nostr"]["metadata"]["created_at_human"]
+    );
+    pretty_assertions::assert_eq!(
+        pretty_json["nostr"]["metadata"]["tags_count"],
+        compact_json["nostr"]["metadata"]["tags_count"]
+    );
+}
+
+#[tokio::test]
+async fn test_show_tweet_with_image_media() {
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    // Create a temporary directory for this test
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+
+    // Use the real tweet with image media (douglaz tweet with image)
+    let tweet_with_image = serde_json::json!({
+        "id": "1947427270152626319",
+        "text": "@allanraicher https://t.co/RJpDQjcHuj",
+        "author": {
+            "id": "3916631",
+            "name": "douglaz",
+            "username": "douglaz",
+            "profile_image_url": "https://pbs.twimg.com/profile_images/1639377321386823680/UVcJ5dbZ_normal.jpg"
+        },
+        "referenced_tweets": [
+            {
+                "id": "1947423415218147567",
+                "type": "replied_to"
+            }
+        ],
+        "attachments": {
+            "media_keys": ["3_1947427262086733824"]
+        },
+        "created_at": "2025-07-21T22:43:37.000Z",
+        "entities": {
+            "urls": [
+                {
+                    "url": "https://t.co/RJpDQjcHuj",
+                    "expanded_url": "https://x.com/douglaz/status/1947427270152626319/photo/1",
+                    "display_url": "pic.x.com/RJpDQjcHuj"
+                }
+            ],
+            "mentions": [
+                {
+                    "username": "allanraicher"
+                }
+            ]
+        },
+        "includes": {
+            "media": [
+                {
+                    "media_key": "3_1947427262086733824",
+                    "type": "photo",
+                    "url": "https://pbs.twimg.com/media/GwamxuaXYAARXmF.jpg"
+                }
+            ]
+        },
+        "author_id": "3916631"
+    });
+
+    let tweet_path = temp_dir
+        .path()
+        .join("20250721_224337_douglaz_1947427270152626319.json");
+    let tweet_json =
+        serde_json::to_string_pretty(&tweet_with_image).expect("Failed to serialize tweet");
+    std::fs::write(&tweet_path, tweet_json).expect("Failed to write test tweet");
+
+    // Run the show-tweet command
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "show-tweet",
+            "1947427270152626319",
+            "--output-dir",
+            temp_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    // Check that the command succeeded
+    assert!(
+        output.status.success(),
+        "Command failed with stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout_str = String::from_utf8(output.stdout).expect("Invalid UTF-8 in stdout");
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout_str).expect("stdout should be valid JSON");
+
+    // Verify the Nostr event content includes the actual image URL
+    let nostr_content = json["nostr"]["event"]["content"].as_str().unwrap();
+
+    // Should contain the actual Twitter media URL inline where the t.co URL was
+    assert!(
+        nostr_content.contains("@allanraicher https://pbs.twimg.com/media/GwamxuaXYAARXmF.jpg"),
+        "Nostr content should contain the actual image URL inline: {nostr_content}"
+    );
+
+    // Should NOT contain the t.co URL anymore since it was replaced
+    assert!(
+        !nostr_content.contains("https://t.co/RJpDQjcHuj"),
+        "Nostr content should not contain the t.co URL since it was replaced: {nostr_content}"
+    );
+
+    // Should NOT contain the Twitter page link since it was replaced with the direct image URL
+    assert!(
+        !nostr_content.contains("https://x.com/douglaz/status/1947427270152626319/photo/1"),
+        "Nostr content should not contain the Twitter page link: {nostr_content}"
+    );
+
+    // The image URL should appear exactly once (inline replacement, no duplication)
+    let image_url_count = nostr_content
+        .matches("https://pbs.twimg.com/media/GwamxuaXYAARXmF.jpg")
+        .count();
+    pretty_assertions::assert_eq!(
+        image_url_count, 1,
+        "Nostr content should contain exactly one instance of the image URL (no duplication): {nostr_content}"
+    );
+
+    // Verify the original Twitter data is preserved
+    let twitter_data = &json["twitter"];
+    pretty_assertions::assert_eq!(twitter_data["id"], "1947427270152626319");
+    pretty_assertions::assert_eq!(twitter_data["author"]["username"], "douglaz");
+
+    // Verify the media is present in the Twitter data
+    let includes_media = &twitter_data["includes"]["media"];
+    assert!(includes_media.is_array());
+    let media_array = includes_media.as_array().unwrap();
+    pretty_assertions::assert_eq!(media_array.len(), 1);
+    pretty_assertions::assert_eq!(
+        media_array[0]["url"],
+        "https://pbs.twimg.com/media/GwamxuaXYAARXmF.jpg"
+    );
+    pretty_assertions::assert_eq!(media_array[0]["type"], "photo");
+}
+
+fn create_tweet_with_referenced_tweet_media() -> serde_json::Value {
+    serde_json::json!({
+        "id": "1946563939120169182",
+        "text": "@SandLabs_21 Por enquanto estou sozinho aqui em Asunción",
+        "author": {
+            "id": "3916631",
+            "name": "douglaz",
+            "username": "douglaz",
+            "profile_image_url": "https://pbs.twimg.com/profile_images/1639377321386823680/UVcJ5dbZ_normal.jpg"
+        },
+        "author_id": "3916631",
+        "created_at": "2025-01-03T01:54:55.000Z",
+        "entities": {
+            "mentions": [
+                {"username": "SandLabs_21"}
+            ]
+        },
+        "referenced_tweets": [
+            {
+                "id": "1946508933071319212",
+                "type": "replied_to",
+                "data": {
+                    "id": "1946508933071319212",
+                    "text": "Aparentemente a rede lora funciona muito bem \nE pra funcionar bem no Brasil só depende de ter mais malucos querendo conversar de forma privada sem precisar da internet https://t.co/cNeKMqGbe6",
+                    "author": {
+                        "id": "1234567890",
+                        "name": "SandLabs_21",
+                        "username": "SandLabs_21",
+                        "profile_image_url": "https://pbs.twimg.com/profile_images/example.jpg"
+                    },
+                    "author_id": "1234567890",
+                    "created_at": "2025-01-03T01:15:32.000Z",
+                    "entities": {
+                        "urls": [
+                            {
+                                "url": "https://t.co/cNeKMqGbe6",
+                                "expanded_url": "https://x.com/SandLabs_21/status/1946508933071319212/video/1",
+                                "display_url": "pic.x.com/cNeKMqGbe6"
+                            }
+                        ]
+                    },
+                    "includes": {
+                        "media": [
+                            {
+                                "media_key": "7_1946508858128416768",
+                                "type": "video",
+                                "url": null,
+                                "preview_image_url": "https://pbs.twimg.com/ext_tw_video_thumb/1946508858128416768/pu/img/example.jpg",
+                                "variants": [
+                                    {
+                                        "bit_rate": 288000,
+                                        "content_type": "video/mp4",
+                                        "url": "https://video.twimg.com/ext_tw_video/1946508750375759873/pu/vid/avc1/480x852/wdUR-OhqpJ8CQyTq.mp4?tag=12"
+                                    },
+                                    {
+                                        "bit_rate": 832000,
+                                        "content_type": "video/mp4",
+                                        "url": "https://video.twimg.com/ext_tw_video/1946508750375759873/pu/vid/avc1/720x1280/wdUR-OhqpJ8CQyTq.mp4?tag=12"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            }
+        ]
+    })
+}
+
+#[tokio::test]
+async fn test_show_tweet_with_referenced_tweet_media() {
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    // Create a test tweet with referenced tweet that has media - tweet 1946563939120169182
+    let tweet_with_ref_media = create_tweet_with_referenced_tweet_media();
+
+    // Create temporary directory for test
+    let temp_dir = TempDir::new().unwrap();
+
+    // Write test tweet to file
+    let tweet_path = temp_dir
+        .path()
+        .join("20250103_015455_douglaz_1946563939120169182.json");
+    let tweet_json =
+        serde_json::to_string_pretty(&tweet_with_ref_media).expect("Failed to serialize tweet");
+    std::fs::write(&tweet_path, tweet_json).expect("Failed to write test tweet");
+
+    // Run the show-tweet command
+    let output = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "show-tweet",
+            "1946563939120169182",
+            "--output-dir",
+            temp_dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute command");
+
+    // Check that the command succeeded
+    assert!(
+        output.status.success(),
+        "Command failed with stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Parse the JSON output from stdout
+    let stdout = String::from_utf8(output.stdout).expect("Invalid UTF-8 in stdout");
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("Invalid JSON in stdout");
+
+    // Extract the Nostr content
+    let nostr_content = json["nostr"]["event"]["content"]
+        .as_str()
+        .expect("Nostr content should be a string");
+
+    // Check that the referenced tweet content includes proper quoted text and media URL expansion
+    assert!(
+        nostr_content.contains("↩️ Reply to @SandLabs_21:"),
+        "Should show proper reply formatting: {nostr_content}"
+    );
+
+    // Should contain referenced tweet content (without quotes)
+    assert!(
+        nostr_content.contains("Aparentemente a rede lora funciona muito bem"),
+        "Should contain referenced tweet content: {nostr_content}"
+    );
+
+    // Should contain actual media URL instead of t.co link in referenced tweet
+    assert!(
+        nostr_content.contains("https://video.twimg.com/ext_tw_video/1946508750375759873/pu/vid/avc1/720x1280/wdUR-OhqpJ8CQyTq.mp4?tag=12"),
+        "Should contain actual video URL in referenced tweet: {nostr_content}"
+    );
+
+    // Should NOT contain t.co URL in the referenced tweet content
+    assert!(
+        !nostr_content.contains("https://t.co/cNeKMqGbe6"),
+        "Should not contain t.co URL in referenced tweet: {nostr_content}"
+    );
+
+    // Assert against the exact expected multiline content (using actual behavior)
+    let expected_content = "🐦 @douglaz: @SandLabs_21 Por enquanto estou sozinho aqui em Asunción\n\n↩️ Reply to @SandLabs_21:\nAparentemente a rede lora funciona muito bem \nE pra funcionar bem no Brasil só depende de ter mais malucos querendo conversar de forma privada sem precisar da internet https://video.twimg.com/ext_tw_video/1946508750375759873/pu/vid/avc1/720x1280/wdUR-OhqpJ8CQyTq.mp4?tag=12\nhttps://twitter.com/i/status/1946508933071319212\n\nhttps://x.com/SandLabs_21/status/1946508933071319212/video/1\n\nOriginal tweet: https://twitter.com/i/status/1946563939120169182";
+
+    pretty_assertions::assert_eq!(
+        nostr_content.trim(),
+        expected_content,
+        "Nostr content should exactly match expected format"
+    );
+}
