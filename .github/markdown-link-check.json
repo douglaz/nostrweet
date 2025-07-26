@@ -1,0 +1,42 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "^http://localhost"
+    },
+    {
+      "pattern": "^https://localhost"
+    },
+    {
+      "pattern": "^ws://localhost"
+    },
+    {
+      "pattern": "^wss://localhost"
+    },
+    {
+      "pattern": "^mailto:"
+    },
+    {
+      "pattern": "^file:"
+    }
+  ],
+  "replacementPatterns": [
+    {
+      "pattern": "^/",
+      "replacement": "{{BASEURL}}/"
+    }
+  ],
+  "httpHeaders": [
+    {
+      "urls": ["https://github.com", "https://api.github.com"],
+      "headers": {
+        "Accept-Encoding": "zstd, br, gzip, deflate",
+        "User-Agent": "Mozilla/5.0 (compatible; markdown-link-check)"
+      }
+    }
+  ],
+  "timeout": "20s",
+  "retryOn429": true,
+  "retryCount": 3,
+  "fallbackRetryDelay": "30s",
+  "aliveStatusCodes": [200, 206, 299, 301, 302, 303, 304, 307, 308]
+}

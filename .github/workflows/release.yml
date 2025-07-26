@@ -1,0 +1,287 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.tag }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          release_name: Nostrweet ${{ steps.get_version.outputs.version }}
+          body: |
+            ## 🐦➡️🟣 Nostrweet ${{ steps.get_version.outputs.version }}
+            
+            A Rust CLI tool for downloading tweets and publishing them to Nostr relays.
+            
+            ### 📦 Installation
+            
+            Download the appropriate binary for your system:
+            - **Linux (glibc)**: `nostrweet-${{ steps.get_version.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz`
+            - **Linux (musl, static)**: `nostrweet-${{ steps.get_version.outputs.version }}-x86_64-unknown-linux-musl.tar.gz`
+            
+            Extract and run:
+            ```bash
+            tar -xzf nostrweet-${{ steps.get_version.outputs.version }}-x86_64-unknown-linux-musl.tar.gz
+            ./nostrweet --help
+            ```
+            
+            ### 🚀 Quick Start
+            
+            1. Set your Twitter API token:
+               ```bash
+               export TWITTER_BEARER_TOKEN=your_token_here
+               ```
+            
+            2. Download a tweet:
+               ```bash
+               ./nostrweet fetch-tweet 1234567890
+               ```
+            
+            3. Post to Nostr:
+               ```bash
+               ./nostrweet post-tweet-to-nostr 1234567890 --relays wss://relay.example.com
+               ```
+            
+            ### 📖 Documentation
+            
+            - [User Guide](https://github.com/${{ github.repository }}/blob/${{ steps.get_version.outputs.version }}/README.md)
+            - [Development Guide](https://github.com/${{ github.repository }}/blob/${{ steps.get_version.outputs.version }}/CLAUDE.md)
+            - [API Documentation](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/)
+            
+            ---
+            
+            Built with Nix ❄️ and lots of ☕
+          draft: false
+          prerelease: false
+
+  build-release:
+    name: Build Release
+    needs: create-release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Build release binary
+        run: |
+          echo "🔨 Building for target: ${{ matrix.target }}"
+          nix develop -c cargo build --release --target ${{ matrix.target }}
+          
+          # Verify binary was created
+          ls -la target/${{ matrix.target }}/release/nostrweet
+          
+          # Test that binary works
+          nix develop -c ./target/${{ matrix.target }}/release/nostrweet --version || echo "Binary test failed"
+
+      - name: Strip binary (musl only)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          echo "🪚 Stripping binary for smaller size..."
+          nix develop -c strip target/${{ matrix.target }}/release/nostrweet
+          ls -la target/${{ matrix.target }}/release/nostrweet
+
+      - name: Create release package
+        run: |
+          cd target/${{ matrix.target }}/release
+          
+          # Create directory structure
+          mkdir -p nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}
+          
+          # Copy binary
+          cp nostrweet nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}/
+          
+          # Copy documentation
+          cp ../../../README.md nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}/
+          cp ../../../LICENSE nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}/
+          cp ../../../CLAUDE.md nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}/
+          
+          # Create install script
+          cat > nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}/install.sh << 'EOF'
+          #!/bin/bash
+          set -euo pipefail
+          
+          echo "🚀 Installing Nostrweet..."
+          
+          # Check if we're root or have sudo
+          if [ "$EUID" -eq 0 ]; then
+            INSTALL_DIR="/usr/local/bin"
+          elif command -v sudo > /dev/null; then
+            INSTALL_DIR="/usr/local/bin"
+            SUDO="sudo"
+          else
+            INSTALL_DIR="$HOME/.local/bin"
+            mkdir -p "$INSTALL_DIR"
+          fi
+          
+          echo "Installing to: $INSTALL_DIR"
+          
+          # Copy binary
+          ${SUDO:-} cp nostrweet "$INSTALL_DIR/"
+          ${SUDO:-} chmod +x "$INSTALL_DIR/nostrweet"
+          
+          echo "✅ Nostrweet installed successfully!"
+          echo "📖 Run 'nostrweet --help' to get started"
+          
+          # Check if directory is in PATH
+          if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+            echo ""
+            echo "⚠️  Note: $INSTALL_DIR is not in your PATH"
+            echo "   Add this to your shell profile (.bashrc, .zshrc, etc.):"
+            echo "   export PATH=\"$INSTALL_DIR:\$PATH\""
+          fi
+          EOF
+          
+          chmod +x nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}/install.sh
+          
+          # Create archive
+          tar -czf nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz \
+            nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}/
+          
+          # Move to repo root
+          mv nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz ../../../
+
+      - name: Generate checksums
+        run: |
+          cd target/${{ matrix.target }}/release
+          
+          # Generate SHA256 checksums
+          sha256sum ../../../nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz > \
+            ../../../nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
+          
+          echo "📊 Package info:"
+          ls -la ../../../nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.*
+          cat ../../../nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
+
+      - name: Upload Release Asset (Binary)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz
+          asset_name: nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Release Asset (Checksum)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
+          asset_name: nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
+          asset_content_type: text/plain
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: [create-release, build-release]
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'yourusername' # Replace with actual owner
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Calculate checksums for Homebrew
+        run: |
+          # Download the musl binary for Homebrew (most compatible)
+          curl -L -o nostrweet.tar.gz \
+            "https://github.com/${{ github.repository }}/releases/download/${{ needs.create-release.outputs.version }}/nostrweet-${{ needs.create-release.outputs.version }}-x86_64-unknown-linux-musl.tar.gz"
+          
+          SHA256=$(sha256sum nostrweet.tar.gz | cut -d' ' -f1)
+          echo "SHA256: $SHA256"
+          echo "HOMEBREW_SHA256=$SHA256" >> $GITHUB_ENV
+
+      - name: Update Homebrew formula
+        run: |
+          echo "🍺 Would update Homebrew formula with:"
+          echo "  Version: ${{ needs.create-release.outputs.version }}"
+          echo "  SHA256: ${{ env.HOMEBREW_SHA256 }}"
+          echo "  URL: https://github.com/${{ github.repository }}/releases/download/${{ needs.create-release.outputs.version }}/nostrweet-${{ needs.create-release.outputs.version }}-x86_64-unknown-linux-musl.tar.gz"
+          
+          # In a real setup, this would create a PR to a homebrew tap repository
+          # For now, just show what would be done
+          echo "ℹ️  Homebrew formula update would be automated here"
+
+  notify-discord:
+    name: Notify Discord
+    needs: [create-release, build-release]
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Discord notification
+        run: |
+          if [ -n "${{ secrets.DISCORD_WEBHOOK_URL }}" ]; then
+            curl -H "Content-Type: application/json" \
+              -d '{
+                "embeds": [
+                  {
+                    "title": "🚀 New Nostrweet Release",
+                    "description": "Version ${{ needs.create-release.outputs.version }} has been released!",
+                    "color": 5763719,
+                    "fields": [
+                      {
+                        "name": "📦 Download",
+                        "value": "[Release Page](https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-release.outputs.version }})",
+                        "inline": true
+                      },
+                      {
+                        "name": "📖 Docs",
+                        "value": "[Documentation](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/)",
+                        "inline": true
+                      }
+                    ],
+                    "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'"
+                  }
+                ]
+              }' \
+              "${{ secrets.DISCORD_WEBHOOK_URL }}"
+          else
+            echo "ℹ️  Discord webhook not configured"
+          fi

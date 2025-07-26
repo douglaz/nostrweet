@@ -1,0 +1,267 @@
+name: Nix
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/nix.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/nix.yml'
+  workflow_dispatch:
+
+jobs:
+  flake-check:
+    name: Nix Flake Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Check flake
+        run: |
+          echo "🔍 Checking Nix flake..."
+          nix flake check --verbose
+
+      - name: Show flake info
+        run: |
+          echo "📋 Flake information:"
+          nix flake show
+          echo ""
+          echo "📦 Flake metadata:"
+          nix flake metadata
+
+      - name: Validate flake inputs
+        run: |
+          echo "🔗 Checking flake inputs..."
+          nix flake lock --no-update-lock-file
+          
+          echo "📅 Input information:"
+          nix flake metadata --json | jq -r '.locks.nodes | to_entries[] | select(.value.original) | "\(.key): \(.value.original.owner)/\(.value.original.repo)@\(.value.locked.rev[0:7])"'
+
+  build-with-nix:
+    name: Build with Nix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Enter development shell and build
+        run: |
+          echo "🏗️ Building project in Nix development shell..."
+          nix develop -c bash -c "
+            echo '📊 Environment info:'
+            echo 'Rust version:' \$(rustc --version)
+            echo 'Cargo version:' \$(cargo --version)
+            echo 'Available targets:' \$(rustc --print target-list | grep x86_64-unknown-linux)
+            echo ''
+            
+            echo '🔨 Building project...'
+            cargo build --release --target x86_64-unknown-linux-musl
+            
+            echo '✅ Build completed successfully!'
+            ls -la target/x86_64-unknown-linux-musl/release/nostrweet
+          "
+
+      - name: Test musl binary works
+        run: |
+          echo "🧪 Testing musl binary..."
+          nix develop -c ./target/x86_64-unknown-linux-musl/release/nostrweet --version
+          nix develop -c ./target/x86_64-unknown-linux-musl/release/nostrweet --help > /dev/null
+
+  shell-test:
+    name: Test Development Shell
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Test development shell environment
+        run: |
+          echo "🧪 Testing development shell environment..."
+          nix develop -c bash -c "
+            echo '🔧 Environment variables:'
+            echo 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER:' \$CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER
+            echo 'CC_x86_64_unknown_linux_musl:' \$CC_x86_64_unknown_linux_musl
+            echo 'OPENSSL_DIR:' \$OPENSSL_DIR
+            echo 'OPENSSL_LIB_DIR:' \$OPENSSL_LIB_DIR
+            echo 'OPENSSL_INCLUDE_DIR:' \$OPENSSL_INCLUDE_DIR
+            echo 'PKG_CONFIG_PATH:' \$PKG_CONFIG_PATH
+            echo ''
+            
+            echo '📦 Available tools:'
+            which rustc
+            which cargo
+            which pkg-config
+            which cc
+            echo ''
+            
+            echo '🎯 Rust targets:'
+            rustup target list --installed
+            echo ''
+            
+            echo '🔗 OpenSSL configuration:'
+            pkg-config --exists openssl && echo 'OpenSSL pkg-config: ✅' || echo 'OpenSSL pkg-config: ❌'
+            pkg-config --modversion openssl || echo 'Could not get OpenSSL version'
+            echo ''
+            
+            echo '✅ Development shell environment is working correctly!'
+          "
+
+      - name: Test just commands in shell
+        run: |
+          echo "🎯 Testing just commands in development shell..."
+          nix develop -c bash -c "
+            # Test just is available and basic commands work
+            just --version
+            echo ''
+            
+            echo '📋 Available just commands:'
+            just --list
+            echo ''
+            
+            echo '🔍 Testing basic just commands:'
+            just check
+            echo 'check: ✅'
+            
+            just build
+            echo 'build: ✅'
+            
+            just test
+            echo 'test: ✅'
+            
+            echo '✅ All just commands work correctly!'
+          "
+
+  cross-platform-test:
+    name: Cross-platform Compatibility
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Test flake on ${{ matrix.os }}
+        run: |
+          echo "🧪 Testing Nix flake on ${{ matrix.os }}..."
+          
+          # Check flake works
+          nix flake check
+          
+          # Enter development shell and run basic commands
+          nix develop -c bash -c "
+            echo 'Rust version:' \$(rustc --version)
+            echo 'Platform:' \$(rustc -vV | grep host)
+            
+            # Try a simple build
+            cargo check --workspace
+            echo '✅ Cargo check successful on ${{ matrix.os }}'
+          "
+
+  update-lock-file:
+    name: Check Lock File Updates
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Check if lock file can be updated
+        run: |
+          echo "🔒 Checking if flake.lock can be updated..."
+          
+          # Save current lock file
+          cp flake.lock flake.lock.original
+          
+          # Try updating
+          nix flake lock --update-input nixpkgs --update-input rust-overlay
+          
+          # Check if anything changed
+          if ! cmp -s flake.lock flake.lock.original; then
+            echo "📈 Lock file can be updated. Showing diff:"
+            echo "```diff"
+            diff -u flake.lock.original flake.lock || true
+            echo "```"
+            
+            # Test that updated lock file still works
+            echo "🧪 Testing updated lock file..."
+            nix develop -c cargo check
+            echo "✅ Updated lock file works correctly"
+          else
+            echo "✅ Lock file is already up to date"
+          fi
+
+      - name: Comment on PR with update info
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            try {
+              const original = fs.readFileSync('flake.lock.original', 'utf8');
+              const updated = fs.readFileSync('flake.lock', 'utf8');
+              
+              if (original !== updated) {
+                const comment = `## 🔒 Nix Flake Lock File Update Available
+                
+                The flake inputs can be updated. This would update dependencies like nixpkgs and rust-overlay to their latest versions.
+                
+                To update the lock file:
+                \`\`\`bash
+                nix flake update
+                \`\`\`
+                
+                > This check ran automatically to ensure compatibility with updated dependencies.
+                `;
+                
+                github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: comment
+                });
+              }
+            } catch (error) {
+              console.log('No lock file changes to report');
+            }

@@ -1,0 +1,196 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  # Allow manual workflow runs
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Disable incremental compilation for CI builds (faster clean builds)
+  CARGO_INCREMENTAL: 0
+  # Enable full backtraces for tests
+  RUST_BACKTRACE: full
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Check Rust formatting
+        run: nix develop -c cargo fmt --all -- --check
+
+      - name: Check code with cargo check
+        run: nix develop -c just check
+
+      - name: Run clippy lints
+        run: nix develop -c just clippy
+
+      - name: Check for typos
+        run: nix develop -c just typos
+        # Continue on failure for typos (informational)
+        continue-on-error: true
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Build project
+        run: nix develop -c just build
+
+      - name: Run unit tests
+        run: nix develop -c cargo test --lib
+
+      - name: Run integration tests
+        run: nix develop -c cargo test --test '*'
+
+      - name: Run doc tests
+        run: nix develop -c cargo test --doc
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Build for ${{ matrix.target }}
+        run: |
+          if [ "${{ matrix.target }}" = "x86_64-unknown-linux-musl" ]; then
+            nix develop -c cargo build --release --target ${{ matrix.target }}
+          else
+            nix develop -c cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nostrweet-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/nostrweet
+          retention-days: 7
+
+  final-check:
+    name: Final Check
+    runs-on: ubuntu-latest
+    # Only run after all other jobs pass
+    needs: [check, test, build]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Run final checks (lint + clippy + tests)
+        run: nix develop -c just final-check
+
+  # Security audit job
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Install cargo-audit
+        run: nix develop -c cargo install cargo-audit
+
+      - name: Run security audit
+        run: nix develop -c cargo audit
+        # Continue on failure for security audit (informational)
+        continue-on-error: true
+
+  # Release build job (only on tags)
+  release:
+    name: Release Build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [check, test, build]
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Build release binary
+        run: nix develop -c cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (for musl targets)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: nix develop -c strip target/${{ matrix.target }}/release/nostrweet
+
+      - name: Create release archive
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czf nostrweet-${{ github.ref_name }}-${{ matrix.target }}.tar.gz nostrweet
+          mv nostrweet-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ../../../
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nostrweet-${{ github.ref_name }}-${{ matrix.target }}
+          path: nostrweet-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: matrix.target == 'x86_64-unknown-linux-musl' # Only create release once
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            nostrweet-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+            nostrweet-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
