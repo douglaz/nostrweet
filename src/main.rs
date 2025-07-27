@@ -25,7 +25,13 @@ mod twitter;
 )]
 struct Cli {
     /// Directory to save the tweet and media
-    #[arg(short, long, default_value = "./downloads", global = true)]
+    #[arg(
+        short,
+        long,
+        default_value = "./downloads",
+        env = "NOSTRWEET_OUTPUT_DIR",
+        global = true
+    )]
     output_dir: PathBuf,
 
     /// Verbose output
@@ -84,15 +90,21 @@ enum Commands {
         tweet_url_or_id: String,
 
         /// Nostr relay addresses to post to (comma-separated)
-        #[arg(short, long, required = true, value_delimiter = ',')]
+        #[arg(
+            short,
+            long,
+            required = true,
+            value_delimiter = ',',
+            env = "NOSTRWEET_RELAYS"
+        )]
         relays: Vec<String>,
 
         /// Blossom server addresses for media uploads (comma-separated)
-        #[arg(short, long, value_delimiter = ',')]
+        #[arg(short, long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
         blossom_servers: Vec<String>,
 
         /// Nostr private key (hex format, without leading 0x)
-        #[arg(short, long)]
+        #[arg(short, long, env = "NOSTRWEET_PRIVATE_KEY")]
         private_key: Option<String>,
 
         /// Force overwrite of existing Nostr event
@@ -107,15 +119,21 @@ enum Commands {
         username: String,
 
         /// Nostr relay addresses to post to (comma-separated)
-        #[arg(short, long, required = true, value_delimiter = ',')]
+        #[arg(
+            short,
+            long,
+            required = true,
+            value_delimiter = ',',
+            env = "NOSTRWEET_RELAYS"
+        )]
         relays: Vec<String>,
 
         /// Blossom server addresses for media uploads (comma-separated)
-        #[arg(short, long, value_delimiter = ',')]
+        #[arg(short, long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
         blossom_servers: Vec<String>,
 
         /// Nostr private key (hex format, without leading 0x)
-        #[arg(short, long)]
+        #[arg(short, long, env = "NOSTRWEET_PRIVATE_KEY")]
         private_key: Option<String>,
 
         /// Force overwrite of existing Nostr events
@@ -131,15 +149,21 @@ enum Commands {
         tweet_url_or_id: String,
 
         /// Nostr relay addresses to post to (comma-separated)
-        #[arg(short, long, required = true, value_delimiter = ',')]
+        #[arg(
+            short,
+            long,
+            required = true,
+            value_delimiter = ',',
+            env = "NOSTRWEET_RELAYS"
+        )]
         relays: Vec<String>,
 
         /// Blossom server addresses for media uploads (comma-separated)
-        #[arg(short, long, value_delimiter = ',')]
+        #[arg(short, long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
         blossom_servers: Vec<String>,
 
         /// Nostr private key (hex format, without leading 0x)
-        #[arg(short, long)]
+        #[arg(short, long, env = "NOSTRWEET_PRIVATE_KEY")]
         private_key: Option<String>,
 
         /// Force overwrite of existing Nostr event
@@ -154,22 +178,34 @@ enum Commands {
         username: String,
 
         /// Nostr relay addresses to post to (comma-separated)
-        #[arg(short, long, required = true, value_delimiter = ',')]
+        #[arg(
+            short,
+            long,
+            required = true,
+            value_delimiter = ',',
+            env = "NOSTRWEET_RELAYS"
+        )]
         relays: Vec<String>,
 
         /// Nostr private key (hex format, without leading 0x)
-        #[arg(short, long)]
+        #[arg(short, long, env = "NOSTRWEET_PRIVATE_KEY")]
         private_key: Option<String>,
     },
 
     /// Update the relay list on Nostr
     UpdateRelayList {
         /// Nostr relay addresses to post to (comma-separated)
-        #[arg(short, long, required = true, value_delimiter = ',')]
+        #[arg(
+            short,
+            long,
+            required = true,
+            value_delimiter = ',',
+            env = "NOSTRWEET_RELAYS"
+        )]
         relays: Vec<String>,
 
         /// Nostr private key (hex format, without leading 0x)
-        #[arg(short, long)]
+        #[arg(short, long, env = "NOSTRWEET_PRIVATE_KEY")]
         private_key: Option<String>,
     },
 
