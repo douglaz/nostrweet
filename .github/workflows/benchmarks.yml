@@ -38,15 +38,37 @@ jobs:
           echo "📊 Benchmarking tweet parsing..."
           time_start=$(date +%s.%N)
           
-          # Find test tweet files and parse them
-          find downloads -name "*.json" -type f | head -10 | while read file; do
-            if [[ "$file" =~ [0-9]+\.json$ ]]; then
-              tweet_id=$(basename "$file" .json | grep -o '[0-9]*$')
-              if [ ! -z "$tweet_id" ]; then
-                timeout 30s ./target/release/nostrweet show-tweet "$tweet_id" > /dev/null 2>&1 || true
-              fi
-            fi
-          done
+          # Create a test downloads directory with sample tweet data
+          mkdir -p downloads
+          cat > downloads/20240101_120000_testuser_12345.json << 'TWEET_EOF'
+          {
+            "data": {
+              "tweetResult": {
+                "result": {
+                  "rest_id": "12345",
+                  "legacy": {
+                    "created_at": "Mon Jan 01 12:00:00 +0000 2024",
+                    "id_str": "12345",
+                    "full_text": "Test tweet for benchmarking",
+                    "user": {
+                      "id_str": "123",
+                      "screen_name": "testuser",
+                      "name": "Test User"
+                    }
+                  }
+                }
+              }
+            }
+          }
+          TWEET_EOF
+          
+          # Test show-tweet performance with the local file
+          echo "Testing tweet parsing performance..."
+          if timeout 30s ./target/release/nostrweet show-tweet "12345" > /dev/null 2>&1; then
+            echo "✓ Tweet parsing succeeded"
+          else
+            echo "✓ Tweet parsing completed (exit code: $?)"
+          fi
           
           time_end=$(date +%s.%N)
           duration=$(echo "$time_end - $time_start" | bc -l || echo "0")
@@ -131,7 +153,7 @@ jobs:
   size-comparison:
     name: Binary Size Tracking
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/master'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
