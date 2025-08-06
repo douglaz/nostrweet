@@ -761,7 +761,7 @@ fn format_reply_tweet(
         content.push_str(&format!("{tweet_url}\n"));
     } else {
         // Fallback: simple link if data not available
-        content.push_str(&format!("↩️ Reply to Tweet {}\n{tweet_url}\n", ref_tweet.id));
+        content.push_str(&format!("↩️ Reply to Tweet {id}\n{tweet_url}\n", id = ref_tweet.id));
     }
 }
 
@@ -800,7 +800,7 @@ fn format_quote_tweet(
         content.push_str(&format!("{tweet_url}\n"));
     } else {
         // Fallback: simple link if data not available
-        content.push_str(&format!("💬 Quote of Tweet {}\n{tweet_url}\n", ref_tweet.id));
+        content.push_str(&format!("💬 Quote of Tweet {id}\n{tweet_url}\n", id = ref_tweet.id));
     }
 }
 
@@ -862,7 +862,7 @@ fn format_retweet(
                 ));
             }
         } else {
-            content.push_str(&format!("🔄 Retweet of Tweet {}\n{tweet_url}\n", ref_tweet.id));
+            content.push_str(&format!("🔄 Retweet of Tweet {id}\n{tweet_url}\n", id = ref_tweet.id));
         }
     }
 }
