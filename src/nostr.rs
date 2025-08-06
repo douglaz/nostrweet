@@ -58,7 +58,6 @@ impl TweetFormatter<'_> {
             merge_expanded_urls_into_full_text(
                 base_text,
                 text_for_expansion,
-                &expanded_text,
                 &used_media_urls,
             )
         } else if has_note_tweet {
@@ -85,7 +84,6 @@ impl TweetFormatter<'_> {
 fn merge_expanded_urls_into_full_text(
     full_text: &str,
     truncated_text: &str,
-    _expanded_text: &str,
     media_urls: &[String],
 ) -> String {
     // If no media URLs were used, return the full text as-is

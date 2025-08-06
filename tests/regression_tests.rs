@@ -737,25 +737,27 @@ mod fixtures {
 }
 
 #[test]
-fn test_parse_simple_tweet() {
+fn test_parse_simple_tweet() -> anyhow::Result<()> {
     let tweet = fixtures::simple_tweet();
     pretty_assertions::assert_eq!(tweet.id, "1234567890123456789");
     pretty_assertions::assert_eq!(tweet.text, "Hello Twitter! This is a test tweet.");
     pretty_assertions::assert_eq!(tweet.author.username, "testuser");
+    Ok(())
 }
 
 #[test]
-fn test_parse_tweet_with_url() {
+fn test_parse_tweet_with_url() -> anyhow::Result<()> {
     let tweet = fixtures::tweet_with_url();
     assert!(tweet.entities.is_some());
-    let entities = tweet.entities.as_ref().unwrap();
+    let entities = tweet.entities.as_ref().ok_or_else(|| anyhow::anyhow!("entities missing"))?;
     assert!(entities.urls.is_some());
-    let urls = entities.urls.as_ref().unwrap();
+    let urls = entities.urls.as_ref().ok_or_else(|| anyhow::anyhow!("urls missing"))?;
     pretty_assertions::assert_eq!(urls.len(), 1);
     pretty_assertions::assert_eq!(
         urls[0].expanded_url,
         "https://example.com/interesting-article"
     );
+    Ok(())
 }
 
 #[test]
