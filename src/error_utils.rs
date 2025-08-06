@@ -1,53 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{de::DeserializeOwned, Serialize};
-use std::path::Path;
-use tokio::fs;
 
 /// File I/O error handling utilities
-///
-/// Write content to a file with contextual error handling
-#[allow(dead_code)]
-pub async fn write_file_with_context<P: AsRef<Path>>(
-    file_path: P,
-    content: &str,
-    operation_desc: &str,
-) -> Result<()> {
-    fs::write(&file_path, content).await.with_context(|| {
-        format!(
-            "Failed to write {operation_desc} to {}",
-            file_path.as_ref().display()
-        )
-    })
-}
-
-/// Read file to string with contextual error handling
-#[allow(dead_code)]
-pub async fn read_file_to_string_with_context<P: AsRef<Path>>(
-    file_path: P,
-    operation_desc: &str,
-) -> Result<String> {
-    fs::read_to_string(&file_path).await.with_context(|| {
-        format!(
-            "Failed to read {operation_desc} from {}",
-            file_path.as_ref().display()
-        )
-    })
-}
-
-/// Create directory (and parents) with contextual error handling
-#[allow(dead_code)]
-pub async fn create_dir_all_with_context<P: AsRef<Path>>(
-    dir_path: P,
-    dir_desc: &str,
-) -> Result<()> {
-    fs::create_dir_all(&dir_path).await.with_context(|| {
-        format!(
-            "Failed to create {dir_desc} directory at {}",
-            dir_path.as_ref().display()
-        )
-    })
-}
-
 /// JSON serialization/parsing error handling utilities
 ///
 /// Serialize data to pretty JSON with contextual error handling
@@ -106,41 +60,11 @@ pub fn create_http_client_with_context() -> Result<reqwest::Client> {
 mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
-    use tempfile::TempDir;
 
     #[derive(Serialize, Deserialize, PartialEq, Debug)]
     struct TestData {
         name: String,
         value: i32,
-    }
-
-    #[tokio::test]
-    async fn test_write_and_read_file_with_context() {
-        let temp_dir = TempDir::new().unwrap();
-        let file_path = temp_dir.path().join("test.txt");
-        let content = "Hello, world!";
-
-        // Test writing
-        write_file_with_context(&file_path, content, "test data")
-            .await
-            .unwrap();
-
-        // Test reading
-        let read_content = read_file_to_string_with_context(&file_path, "test data")
-            .await
-            .unwrap();
-        assert_eq!(read_content, content);
-    }
-
-    #[tokio::test]
-    async fn test_create_dir_all_with_context() {
-        let temp_dir = TempDir::new().unwrap();
-        let nested_path = temp_dir.path().join("nested").join("directory");
-
-        create_dir_all_with_context(&nested_path, "nested test")
-            .await
-            .unwrap();
-        assert!(nested_path.exists());
     }
 
     #[test]

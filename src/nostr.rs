@@ -567,7 +567,7 @@ fn expand_urls_in_text(
                         }
                     } else {
                         // Non-media URL: use regular expansion with markdown format
-                        if let Ok(_parsed_url) = UrlParser::parse(&url_entity.expanded_url) {
+                        if UrlParser::parse(&url_entity.expanded_url).is_ok() {
                             result = result.replace(
                                 &url_entity.url,
                                 &format!(
@@ -643,9 +643,9 @@ fn analyze_retweet(tweet: &crate::twitter::Tweet) -> (bool, Option<String>) {
         return (false, None);
     };
 
-    let Some(_retweet) = ref_tweets.iter().find(|rt| rt.type_field == "retweeted") else {
+    if !ref_tweets.iter().any(|rt| rt.type_field == "retweeted") {
         return (false, None);
-    };
+    }
 
     // Pure retweets typically start with "RT @username:"
     let raw_text = if let Some(note) = &tweet.note_tweet {

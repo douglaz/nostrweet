@@ -50,7 +50,6 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
     // Extract possible video URLs from entities.urls (needed when Twitter doesn't include media variants)
     fn extract_video_urls_from_entities(
         entities: &Option<crate::twitter::Entities>,
-        _tweet_id: &str,
     ) -> Vec<String> {
         let mut video_urls = Vec::new();
 
@@ -87,15 +86,14 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
     // If we have no media URLs found via includes.media, try to extract from entities.urls
     if media_urls.is_empty() {
         // Try to get video URLs from entities
-        let mut entity_video_urls = extract_video_urls_from_entities(&tweet.entities, &tweet.id);
+        let mut entity_video_urls = extract_video_urls_from_entities(&tweet.entities);
         media_urls.append(&mut entity_video_urls);
 
         // Also check referenced tweets for video URLs in their entities
         if let Some(referenced_tweets) = &tweet.referenced_tweets {
             for ref_tweet in referenced_tweets {
                 if let Some(ref_data) = &ref_tweet.data {
-                    let mut ref_video_urls =
-                        extract_video_urls_from_entities(&ref_data.entities, &ref_data.id);
+                    let mut ref_video_urls = extract_video_urls_from_entities(&ref_data.entities);
                     media_urls.append(&mut ref_video_urls);
                 }
             }
@@ -132,8 +130,8 @@ pub async fn download_media(tweet: &Tweet, output_dir: &Path) -> Result<Vec<Medi
     // Process media from the main tweet
     if let Some(includes) = &tweet.includes {
         if let Some(media_items) = &includes.media {
-            for (index, media) in media_items.iter().enumerate() {
-                match download_media_item(&client, media, tweet, index, output_dir).await {
+            for media in media_items.iter() {
+                match download_media_item(&client, media, tweet, output_dir).await {
                     Ok(result) => media_files.push(result),
                     Err(e) => {
                         warn!(
@@ -164,12 +162,11 @@ pub async fn download_media(tweet: &Tweet, output_dir: &Path) -> Result<Vec<Medi
 
                 if let Some(includes) = &original_tweet.includes {
                     if let Some(media_items) = &includes.media {
-                        for (item_index, media_item) in media_items.iter().enumerate() {
+                        for media_item in media_items.iter() {
                             match download_media_item(
                                 &client,
                                 media_item,
                                 original_tweet,
-                                item_index,
                                 output_dir,
                             )
                             .await
@@ -445,7 +442,6 @@ async fn download_media_item(
     client: &Client,
     media: &TwitterMedia,
     tweet: &Tweet,
-    _index: usize,
     output_dir: &Path,
 ) -> Result<MediaResult> {
     let download_url = determine_download_url(media)?;
