@@ -55,11 +55,7 @@ impl TweetFormatter<'_> {
 
         // If we have a note_tweet, we need to merge the expanded URLs into the full text
         let final_text = if has_note_tweet && !used_media_urls.is_empty() {
-            merge_expanded_urls_into_full_text(
-                base_text,
-                text_for_expansion,
-                &used_media_urls,
-            )
+            merge_expanded_urls_into_full_text(base_text, text_for_expansion, &used_media_urls)
         } else if has_note_tweet {
             base_text.to_string()
         } else {
@@ -759,7 +755,10 @@ fn format_reply_tweet(
         content.push_str(&format!("{tweet_url}\n"));
     } else {
         // Fallback: simple link if data not available
-        content.push_str(&format!("↩️ Reply to Tweet {id}\n{tweet_url}\n", id = ref_tweet.id));
+        content.push_str(&format!(
+            "↩️ Reply to Tweet {id}\n{tweet_url}\n",
+            id = ref_tweet.id
+        ));
     }
 }
 
@@ -798,7 +797,10 @@ fn format_quote_tweet(
         content.push_str(&format!("{tweet_url}\n"));
     } else {
         // Fallback: simple link if data not available
-        content.push_str(&format!("💬 Quote of Tweet {id}\n{tweet_url}\n", id = ref_tweet.id));
+        content.push_str(&format!(
+            "💬 Quote of Tweet {id}\n{tweet_url}\n",
+            id = ref_tweet.id
+        ));
     }
 }
 
@@ -860,7 +862,10 @@ fn format_retweet(
                 ));
             }
         } else {
-            content.push_str(&format!("🔄 Retweet of Tweet {id}\n{tweet_url}\n", id = ref_tweet.id));
+            content.push_str(&format!(
+                "🔄 Retweet of Tweet {id}\n{tweet_url}\n",
+                id = ref_tweet.id
+            ));
         }
     }
 }
