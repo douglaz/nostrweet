@@ -414,8 +414,8 @@ pub async fn save_nostr_event_info(
         })?;
     }
 
-    let tweet_id = &event_info.tweet_id;
-    let event_info_path = nostr_dir.join(format!("{tweet_id}.json"));
+    let event_info_path =
+        nostr_dir.join(format!("{tweet_id}.json", tweet_id = event_info.tweet_id));
 
     let json = serde_json::to_string_pretty(event_info)
         .context("Failed to serialize Nostr event info to JSON")?;
@@ -818,8 +818,7 @@ fn format_retweet(
     if let Some(ref_data) = &ref_tweet.data {
         // Add retweet header
         let prefix = if is_simple_retweet {
-            let username = &tweet.author.username;
-            let base = format!("🔁 @{username} retweeted");
+            let base = format!("🔁 @{username} retweeted", username = tweet.author.username);
             match rt_username {
                 Some(username) => format!("{base} @{username}:\n"),
                 None => format!("{base}:\n"),
