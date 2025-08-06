@@ -1,4 +1,5 @@
 use nostr_sdk::{EventBuilder, Keys, Kind, Tag, Timestamp};
+use nostrweet::media::extract_media_urls_from_tweet;
 use nostrweet::nostr::format_tweet_as_nostr_content;
 use nostrweet::twitter::Tweet;
 use serde_json::json;
@@ -282,6 +283,237 @@ mod fixtures {
         }"#).unwrap()
     }
 
+    /// Real douglaz tweet - retweet with video (from 2025-07-27)
+    pub fn douglaz_retweet_with_video() -> Tweet {
+        serde_json::from_str(r#"{
+            "id": "1949597796660551797",
+            "text": "RT @newstart_2024: Frank Zappa, 1981: \"Schools train people to be ignorant... They give you the equipment that you need to be a functional…",
+            "author": {
+                "id": "3916631",
+                "name": "douglaz",
+                "username": "douglaz",
+                "profile_image_url": "https://pbs.twimg.com/profile_images/1639377321386823680/UVcJ5dbZ_normal.jpg",
+                "description": "You may also like npub1yvjmvxh2jx07m945mf2lu4j5kswr0d63n0w6cjddj3vpkw4unp4qjarngj",
+                "url": "https://t.co/fNbahsM4CC",
+                "entities": {
+                    "url": {
+                        "urls": [
+                            {
+                                "url": "https://t.co/fNbahsM4CC",
+                                "expanded_url": "https://github.com/douglaz",
+                                "display_url": "github.com/douglaz"
+                            }
+                        ]
+                    },
+                    "description": null
+                }
+            },
+            "referenced_tweets": [
+                {
+                    "id": "1949546554764705845",
+                    "type": "retweeted",
+                    "data": {
+                        "id": "1949546554764705845",
+                        "text": "Frank Zappa, 1981: \"Schools train people to be ignorant... They give you the equipment that you need to be a functional ignoramus.\"\n\n\"They prepare you to be a usable victim for a military industrial complex that needs manpower.\"\n\n\"As long as you're just smart enough to do a job, https://t.co/JsfJ9Q4ndA",
+                        "author": {
+                            "id": "1109532876310302721",
+                            "name": "Camus",
+                            "username": "newstart_2024",
+                            "profile_image_url": "https://pbs.twimg.com/profile_images/1917152153237327872/f-qClfGh_normal.jpg",
+                            "description": "DM for removals/credit\nNo one saves us but ourselves. No one can and no one may. We ourselves must walk the path.\n― Gautama Buddha",
+                            "url": "https://t.co/lCKgLPN1OC",
+                            "entities": {
+                                "url": {
+                                    "urls": [
+                                        {
+                                            "url": "https://t.co/lCKgLPN1OC",
+                                            "expanded_url": "https://linktr.ee/newstart__2024",
+                                            "display_url": "linktr.ee/newstart__2024"
+                                        }
+                                    ]
+                                },
+                                "description": null
+                            }
+                        },
+                        "referenced_tweets": null,
+                        "attachments": {
+                            "media_keys": [
+                                "13_1949544286111809536"
+                            ]
+                        },
+                        "created_at": "2025-07-27T19:04:54.000Z",
+                        "entities": {
+                            "urls": [
+                                {
+                                    "url": "https://t.co/JsfJ9Q4ndA",
+                                    "expanded_url": "https://x.com/newstart_2024/status/1949546554764705845/video/1",
+                                    "display_url": "pic.x.com/JsfJ9Q4ndA"
+                                }
+                            ],
+                            "mentions": null,
+                            "hashtags": null
+                        },
+                        "includes": {
+                            "media": [
+                                {
+                                    "media_key": "13_1949544286111809536",
+                                    "type": "video",
+                                    "url": null,
+                                    "preview_image_url": "https://pbs.twimg.com/amplify_video_thumb/1949544286111809536/img/RNGcNb5F_P0ZEjCH.jpg",
+                                    "alt_text": null,
+                                    "variants": [
+                                        {
+                                            "bit_rate": 256000,
+                                            "content_type": "video/mp4",
+                                            "url": "https://video.twimg.com/amplify_video/1949544286111809536/vid/avc1/368x270/OlQs7r9QATt3w1mN.mp4"
+                                        },
+                                        {
+                                            "bit_rate": 832000,
+                                            "content_type": "video/mp4",
+                                            "url": "https://video.twimg.com/amplify_video/1949544286111809536/vid/avc1/480x352/JFYPmmXfT3EQV8aE.mp4"
+                                        },
+                                        {
+                                            "bit_rate": null,
+                                            "content_type": "application/x-mpegURL",
+                                            "url": "https://video.twimg.com/amplify_video/1949544286111809536/pl/INTWkva2FMqH9yG2.m3u8?v=865"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "users": [
+                                {
+                                    "id": "1109532876310302721",
+                                    "name": "Camus",
+                                    "username": "newstart_2024",
+                                    "profile_image_url": "https://pbs.twimg.com/profile_images/1917152153237327872/f-qClfGh_normal.jpg",
+                                    "description": "DM for removals/credit\nNo one saves us but ourselves. No one can and no one may. We ourselves must walk the path.\n― Gautama Buddha",
+                                    "url": "https://t.co/lCKgLPN1OC",
+                                    "entities": {
+                                        "url": {
+                                            "urls": [
+                                                {
+                                                    "url": "https://t.co/lCKgLPN1OC",
+                                                    "expanded_url": "https://linktr.ee/newstart__2024",
+                                                    "display_url": "linktr.ee/newstart__2024"
+                                                }
+                                            ]
+                                        },
+                                        "description": null
+                                    }
+                                }
+                            ],
+                            "tweets": null
+                        },
+                        "author_id": "1109532876310302721",
+                        "note_tweet": {
+                            "text": "Frank Zappa, 1981: \"Schools train people to be ignorant... They give you the equipment that you need to be a functional ignoramus.\"\n\n\"They prepare you to be a usable victim for a military industrial complex that needs manpower.\"\n\n\"As long as you're just smart enough to do a job, and just dumb enough to swallow what they feed you, you're going to be alright.\"\n\n\"Schools mechanically and very specifically try and breed out any hint of creative thought in the kids that are coming up.\""
+                        }
+                    }
+                }
+            ],
+            "attachments": null,
+            "created_at": "2025-07-27T22:28:31.000Z",
+            "entities": {
+                "urls": null,
+                "mentions": [
+                    {
+                        "username": "newstart_2024"
+                    }
+                ],
+                "hashtags": null
+            },
+            "includes": {
+                "media": [
+                    {
+                        "media_key": "13_1949544286111809536",
+                        "type": "video",
+                        "url": null,
+                        "preview_image_url": "https://pbs.twimg.com/amplify_video_thumb/1949544286111809536/img/RNGcNb5F_P0ZEjCH.jpg",
+                        "alt_text": null,
+                        "variants": [
+                            {
+                                "bit_rate": 256000,
+                                "content_type": "video/mp4",
+                                "url": "https://video.twimg.com/amplify_video/1949544286111809536/vid/avc1/368x270/OlQs7r9QATt3w1mN.mp4"
+                            },
+                            {
+                                "bit_rate": 832000,
+                                "content_type": "video/mp4",
+                                "url": "https://video.twimg.com/amplify_video/1949544286111809536/vid/avc1/480x352/JFYPmmXfT3EQV8aE.mp4"
+                            },
+                            {
+                                "bit_rate": null,
+                                "content_type": "application/x-mpegURL",
+                                "url": "https://video.twimg.com/amplify_video/1949544286111809536/pl/INTWkva2FMqH9yG2.m3u8?v=865"
+                            }
+                        ]
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "3916631",
+                        "name": "douglaz",
+                        "username": "douglaz",
+                        "profile_image_url": "https://pbs.twimg.com/profile_images/1639377321386823680/UVcJ5dbZ_normal.jpg",
+                        "description": "You may also like npub1yvjmvxh2jx07m945mf2lu4j5kswr0d63n0w6cjddj3vpkw4unp4qjarngj",
+                        "url": "https://t.co/fNbahsM4CC",
+                        "entities": {
+                            "url": {
+                                "urls": [
+                                    {
+                                        "url": "https://t.co/fNbahsM4CC",
+                                        "expanded_url": "https://github.com/douglaz",
+                                        "display_url": "github.com/douglaz"
+                                    }
+                                ]
+                            },
+                            "description": null
+                        }
+                    }
+                ],
+                "tweets": [
+                    {
+                        "id": "1949546554764705845",
+                        "text": "Frank Zappa, 1981: \"Schools train people to be ignorant... They give you the equipment that you need to be a functional ignoramus.\"\n\n\"They prepare you to be a usable victim for a military industrial complex that needs manpower.\"\n\n\"As long as you're just smart enough to do a job, https://t.co/JsfJ9Q4ndA",
+                        "author": {
+                            "id": "",
+                            "name": null,
+                            "username": "",
+                            "profile_image_url": null,
+                            "description": null,
+                            "url": null,
+                            "entities": null
+                        },
+                        "referenced_tweets": null,
+                        "attachments": {
+                            "media_keys": [
+                                "13_1949544286111809536"
+                            ]
+                        },
+                        "created_at": "2025-07-27T19:04:54.000Z",
+                        "entities": {
+                            "urls": [
+                                {
+                                    "url": "https://t.co/JsfJ9Q4ndA",
+                                    "expanded_url": "https://x.com/newstart_2024/status/1949546554764705845/video/1",
+                                    "display_url": "pic.x.com/JsfJ9Q4ndA"
+                                }
+                            ],
+                            "mentions": null,
+                            "hashtags": null
+                        },
+                        "includes": null,
+                        "author_id": "1109532876310302721",
+                        "note_tweet": {
+                            "text": "Frank Zappa, 1981: \"Schools train people to be ignorant... They give you the equipment that you need to be a functional ignoramus.\"\n\n\"They prepare you to be a usable victim for a military industrial complex that needs manpower.\"\n\n\"As long as you're just smart enough to do a job, and just dumb enough to swallow what they feed you, you're going to be alright.\"\n\n\"Schools mechanically and very specifically try and breed out any hint of creative thought in the kids that are coming up.\""
+                        }
+                    }
+                ]
+            },
+            "author_id": "3916631"
+        }"#).unwrap()
+    }
+
     /// Real douglaz tweet - Cannes reply with media in referenced tweet (from 2025-07-30)
     pub fn douglaz_cannes_reply_with_media() -> Tweet {
         serde_json::from_str(r#"{
@@ -505,25 +737,27 @@ mod fixtures {
 }
 
 #[test]
-fn test_parse_simple_tweet() {
+fn test_parse_simple_tweet() -> anyhow::Result<()> {
     let tweet = fixtures::simple_tweet();
     pretty_assertions::assert_eq!(tweet.id, "1234567890123456789");
     pretty_assertions::assert_eq!(tweet.text, "Hello Twitter! This is a test tweet.");
     pretty_assertions::assert_eq!(tweet.author.username, "testuser");
+    Ok(())
 }
 
 #[test]
-fn test_parse_tweet_with_url() {
+fn test_parse_tweet_with_url() -> anyhow::Result<()> {
     let tweet = fixtures::tweet_with_url();
     assert!(tweet.entities.is_some());
-    let entities = tweet.entities.as_ref().unwrap();
+    let entities = tweet.entities.as_ref().ok_or_else(|| anyhow::anyhow!("entities missing"))?;
     assert!(entities.urls.is_some());
-    let urls = entities.urls.as_ref().unwrap();
+    let urls = entities.urls.as_ref().ok_or_else(|| anyhow::anyhow!("urls missing"))?;
     pretty_assertions::assert_eq!(urls.len(), 1);
     pretty_assertions::assert_eq!(
         urls[0].expanded_url,
         "https://example.com/interesting-article"
     );
+    Ok(())
 }
 
 #[test]
@@ -1512,12 +1746,130 @@ async fn test_show_tweet_with_referenced_tweet_media() {
         "Should not contain t.co URL in referenced tweet: {nostr_content}"
     );
 
-    // Assert against the exact expected multiline content (using actual behavior)
-    let expected_content = "🐦 @douglaz: @SandLabs_21 Por enquanto estou sozinho aqui em Asunción\n\n↩️ Reply to @SandLabs_21:\nAparentemente a rede lora funciona muito bem \nE pra funcionar bem no Brasil só depende de ter mais malucos querendo conversar de forma privada sem precisar da internet https://video.twimg.com/ext_tw_video/1946508750375759873/pu/vid/avc1/720x1280/wdUR-OhqpJ8CQyTq.mp4?tag=12\nhttps://twitter.com/i/status/1946508933071319212\n\nhttps://x.com/SandLabs_21/status/1946508933071319212/video/1\n\nOriginal tweet: https://twitter.com/i/status/1946563939120169182";
+    // Assert against the exact expected multiline content
+    // Note: Currently the code shows both the direct video URL and the Twitter video page URL
+    // This could be improved in the future to only show the direct URL
+    let expected_content = "🐦 @douglaz: @SandLabs_21 Por enquanto estou sozinho aqui em Asunción\n\n↩️ Reply to @SandLabs_21:\nAparentemente a rede lora funciona muito bem \nE pra funcionar bem no Brasil só depende de ter mais malucos querendo conversar de forma privada sem precisar da internet https://video.twimg.com/ext_tw_video/1946508750375759873/pu/vid/avc1/720x1280/wdUR-OhqpJ8CQyTq.mp4?tag=12\nhttps://twitter.com/i/status/1946508933071319212\nhttps://x.com/SandLabs_21/status/1946508933071319212/video/1\n\nOriginal tweet: https://twitter.com/i/status/1946563939120169182";
 
     pretty_assertions::assert_eq!(
         nostr_content.trim(),
         expected_content,
         "Nostr content should exactly match expected format"
     );
+}
+
+#[tokio::test]
+async fn test_douglaz_retweet_with_video_inline() {
+    let tweet = fixtures::douglaz_retweet_with_video();
+    let keys = Keys::generate();
+    let media_urls = vec![];
+
+    let event = create_nostr_event_from_tweet(&tweet, &media_urls, &keys)
+        .await
+        .expect("Failed to create Nostr event");
+
+    // Verify event structure
+    pretty_assertions::assert_eq!(event.kind, Kind::TextNote);
+    pretty_assertions::assert_eq!(event.pubkey, keys.public_key());
+
+    // Verify content formatting
+    let content = &event.content;
+
+    // Check that it's formatted as a retweet
+    assert!(content.contains("🔁 @douglaz retweeted @newstart_2024:"));
+
+    // Check that the Frank Zappa quote is present
+    assert!(content.contains("Frank Zappa, 1981: \"Schools train people to be ignorant"));
+    assert!(content.contains("functional ignoramus"));
+    assert!(content.contains("military industrial complex"));
+
+    // THE KEY TEST: The video URL should be inline where the t.co URL was
+    // The text ends with "do a job," followed by the t.co URL in the original
+    // We want to ensure the video URL replaces the t.co URL inline
+    assert!(
+        content.contains("do a job, https://video.twimg.com/amplify_video/1949544286111809536/vid/avc1/480x352/JFYPmmXfT3EQV8aE.mp4"),
+        "Video URL should be inline where the t.co URL was, not separated. Content: {content}"
+    );
+
+    // Make sure the t.co URL is NOT present
+    assert!(
+        !content.contains("https://t.co/JsfJ9Q4ndA"),
+        "t.co URL should be replaced, not present. Content: {content}"
+    );
+
+    // The video URL should NOT appear again after the Twitter link
+    let twitter_link_pos = content
+        .find("https://twitter.com/i/status/1949546554764705845")
+        .unwrap();
+    let video_url = "https://video.twimg.com/amplify_video/1949544286111809536/vid/avc1/480x352/JFYPmmXfT3EQV8aE.mp4";
+
+    // Find all occurrences of the video URL
+    let video_occurrences: Vec<_> = content.match_indices(video_url).collect();
+
+    // Should only appear once (inline)
+    pretty_assertions::assert_eq!(
+        video_occurrences.len(),
+        1,
+        "Video URL should appear exactly once (inline). Content: {content}"
+    );
+
+    // And that one occurrence should be before the Twitter link
+    assert!(
+        video_occurrences[0].0 < twitter_link_pos,
+        "Video URL should appear before the Twitter link, not after. Content: {content}"
+    );
+
+    // Verify the original tweet link is present
+    assert!(content.contains("Original tweet: https://twitter.com/i/status/1949597796660551797"));
+}
+
+#[test]
+fn test_extract_media_urls_from_retweeted_tweet() {
+    let tweet = fixtures::douglaz_retweet_with_video();
+
+    // Check if the main tweet has media
+    let main_media_urls = extract_media_urls_from_tweet(&tweet);
+    println!("Main tweet media URLs: {:?}", main_media_urls);
+
+    // Check media from referenced tweets
+    if let Some(ref_tweets) = &tweet.referenced_tweets {
+        for ref_tweet in ref_tweets {
+            if let Some(ref_data) = &ref_tweet.data {
+                let ref_media_urls = extract_media_urls_from_tweet(ref_data);
+                println!(
+                    "Referenced tweet {} media URLs: {:?}",
+                    ref_data.id, ref_media_urls
+                );
+
+                // For the retweeted tweet, we expect to find the video URL
+                if ref_tweet.type_field == "retweeted" {
+                    assert!(
+                        !ref_media_urls.is_empty(),
+                        "Retweeted tweet should have media URLs"
+                    );
+
+                    // Should contain the video URL
+                    let has_video = ref_media_urls
+                        .iter()
+                        .any(|url| url.contains("video.twimg.com"));
+                    assert!(
+                        has_video,
+                        "Should extract video URL from retweeted tweet. Found: {:?}",
+                        ref_media_urls
+                    );
+
+                    // Check the text
+                    println!("Retweeted tweet text: {}", ref_data.text);
+                    if let Some(note) = &ref_data.note_tweet {
+                        println!("Retweeted tweet note text: {}", note.text);
+                    }
+
+                    // Check entities
+                    if let Some(entities) = &ref_data.entities {
+                        println!("Retweeted tweet entities: {:?}", entities);
+                    }
+                }
+            }
+        }
+    }
 }

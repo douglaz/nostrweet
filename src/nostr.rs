@@ -17,6 +17,115 @@ use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use url::Url as UrlParser;
 
+/// Helper struct for formatting tweet content
+struct TweetFormatter<'a> {
+    tweet: &'a crate::twitter::Tweet,
+    media_urls: &'a [String],
+}
+
+/// Result of formatting tweet content
+struct FormattedContent {
+    text: String,
+    used_media_urls: Vec<String>,
+}
+
+impl TweetFormatter<'_> {
+    /// Process tweet content: extract media, expand URLs, handle note_tweet
+    fn process_content(&self) -> FormattedContent {
+        // Extract media URLs from the tweet
+        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(self.tweet);
+
+        // Get the appropriate text (note_tweet has full text, regular text may be truncated)
+        let (base_text, has_note_tweet) = if let Some(note) = &self.tweet.note_tweet {
+            (&note.text as &str, true)
+        } else {
+            (&self.tweet.text as &str, false)
+        };
+
+        // For URL expansion, we need the text that contains t.co URLs
+        let text_for_expansion = &self.tweet.text;
+
+        // Expand URLs in the text
+        let (expanded_text, mut used_media_urls) = expand_urls_in_text(
+            text_for_expansion,
+            self.tweet.entities.as_ref(),
+            &tweet_media_urls,
+            self.tweet,
+        );
+
+        // If we have a note_tweet, we need to merge the expanded URLs into the full text
+        let final_text = if has_note_tweet && !used_media_urls.is_empty() {
+            merge_expanded_urls_into_full_text(
+                base_text,
+                text_for_expansion,
+                &used_media_urls,
+            )
+        } else if has_note_tweet {
+            base_text.to_string()
+        } else {
+            expanded_text
+        };
+
+        // Combine with any external media URLs passed in
+        for url in self.media_urls {
+            if !used_media_urls.contains(url) && !tweet_media_urls.contains(url) {
+                used_media_urls.push(url.clone());
+            }
+        }
+
+        FormattedContent {
+            text: final_text,
+            used_media_urls,
+        }
+    }
+}
+
+/// Merge expanded URLs from truncated text into the full note_tweet text
+fn merge_expanded_urls_into_full_text(
+    full_text: &str,
+    truncated_text: &str,
+    media_urls: &[String],
+) -> String {
+    // If no media URLs were used, return the full text as-is
+    if media_urls.is_empty() {
+        return full_text.to_string();
+    }
+
+    // Find the position where truncation occurred
+    // The truncated text should be a prefix of the full text (minus the t.co URL)
+    let truncation_point = truncated_text.rfind("https://t.co/").and_then(|pos| {
+        let before_url = &truncated_text[..pos];
+        full_text
+            .find(before_url.trim_end())
+            .map(|p| p + before_url.trim_end().len())
+    });
+
+    if let Some(pos) = truncation_point {
+        // Insert the media URL at the truncation point
+        let mut result = full_text.to_string();
+
+        // Check if we need spacing
+        let before_char = result.chars().nth(pos.saturating_sub(1));
+        let after_char = result.chars().nth(pos);
+
+        let needs_space_before = before_char.is_some_and(|c| !c.is_whitespace());
+        let needs_space_after = after_char.is_some_and(|c| !c.is_whitespace());
+
+        let url_with_spacing = match (needs_space_before, needs_space_after) {
+            (true, true) => [" ", &media_urls[0], " "].concat(),
+            (true, false) => [" ", &media_urls[0]].concat(),
+            (false, true) => [&media_urls[0], " "].concat(),
+            (false, false) => media_urls[0].clone(),
+        };
+
+        result.insert_str(pos, &url_with_spacing);
+        result
+    } else {
+        // Fallback: append at the end
+        [full_text.trim_end(), " ", &media_urls[0]].concat()
+    }
+}
+
 /// Builds a Twitter status URL from a tweet ID
 pub fn build_twitter_status_url(tweet_id: &str) -> String {
     format!("https://twitter.com/i/status/{tweet_id}")
@@ -486,14 +595,25 @@ fn find_media_url_for_shortened_url(
     tweet: &crate::twitter::Tweet,
     media_urls: &[String],
 ) -> Option<String> {
-    // Try to match the shortened URL with media in the tweet
-    if let Some(includes) = &tweet.includes {
-        if let Some(_media_items) = &includes.media {
-            // For now, if we have media URLs and this looks like a media t.co URL,
-            // return the first media URL. In a more sophisticated implementation,
-            // we could try to match based on media keys or other attributes.
-            if !media_urls.is_empty() && shortened_url.contains("t.co") {
-                return Some(media_urls[0].clone());
+    // For video tweets, the media_urls should contain the actual video URLs
+    // We need to find the best quality video variant to replace the t.co URL
+    if !media_urls.is_empty() && shortened_url.contains("t.co") {
+        // Check if this t.co URL has a corresponding video/photo entity
+        if let Some(entities) = &tweet.entities {
+            if let Some(urls) = &entities.urls {
+                for url_entity in urls {
+                    if url_entity.url == shortened_url {
+                        // This is the matching t.co URL
+                        // If it's a video or photo URL, return the best media URL
+                        if url_entity.expanded_url.contains("/video/")
+                            || url_entity.expanded_url.contains("/photo/")
+                            || url_entity.display_url.starts_with("pic.")
+                        {
+                            // For videos, prefer the highest quality variant which is typically last in media_urls
+                            return media_urls.last().cloned();
+                        }
+                    }
+                }
             }
         }
     }
@@ -512,7 +632,10 @@ pub fn format_tweet_as_nostr_content(
     add_author_info(&mut content, tweet, is_simple_retweet);
     let used_media_urls = add_tweet_content(&mut content, tweet, is_simple_retweet, media_urls);
     add_referenced_tweets(&mut content, tweet, is_simple_retweet, &rt_username);
-    add_media_urls(&mut content, media_urls, &used_media_urls);
+    // For simple retweets, don't add media URLs since they belong to the retweeted content
+    if !is_simple_retweet {
+        add_media_urls(&mut content, media_urls, &used_media_urls);
+    }
     add_original_tweet_url(&mut content, &tweet.id);
 
     content
@@ -601,6 +724,147 @@ fn add_tweet_content(
     used_media_urls
 }
 
+/// Format a reply tweet
+fn format_reply_tweet(
+    content: &mut String,
+    ref_tweet: &crate::twitter::ReferencedTweet,
+    tweet_url: &str,
+) {
+    if let Some(ref_data) = &ref_tweet.data {
+        let formatter = TweetFormatter {
+            tweet: ref_data,
+            media_urls: &[],
+        };
+        let formatted = formatter.process_content();
+
+        // Add reply header
+        content.push_str(&format!(
+            "↩️ Reply to @{username}:\n",
+            username = ref_data.author.username
+        ));
+
+        // Add content
+        content.push_str(&formatted.text);
+        content.push('\n');
+
+        // Add any unused media URLs
+        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
+        for url in &tweet_media_urls {
+            if !formatted.used_media_urls.contains(url) {
+                content.push_str(&format!("{url}\n"));
+            }
+        }
+
+        // Add link to original tweet
+        content.push_str(&format!("{tweet_url}\n"));
+    } else {
+        // Fallback: simple link if data not available
+        content.push_str(&format!("↩️ Reply to Tweet {id}\n{tweet_url}\n", id = ref_tweet.id));
+    }
+}
+
+/// Format a quoted tweet
+fn format_quote_tweet(
+    content: &mut String,
+    ref_tweet: &crate::twitter::ReferencedTweet,
+    tweet_url: &str,
+) {
+    if let Some(ref_data) = &ref_tweet.data {
+        let formatter = TweetFormatter {
+            tweet: ref_data,
+            media_urls: &[],
+        };
+        let formatted = formatter.process_content();
+
+        // Add quote header
+        content.push_str(&format!(
+            "💬 Quote of @{username}:\n",
+            username = ref_data.author.username
+        ));
+
+        // Add content
+        content.push_str(&formatted.text);
+        content.push('\n');
+
+        // Add any unused media URLs
+        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
+        for url in &tweet_media_urls {
+            if !formatted.used_media_urls.contains(url) {
+                content.push_str(&format!("{url}\n"));
+            }
+        }
+
+        // Add link to original tweet
+        content.push_str(&format!("{tweet_url}\n"));
+    } else {
+        // Fallback: simple link if data not available
+        content.push_str(&format!("💬 Quote of Tweet {id}\n{tweet_url}\n", id = ref_tweet.id));
+    }
+}
+
+/// Format a retweet
+fn format_retweet(
+    content: &mut String,
+    ref_tweet: &crate::twitter::ReferencedTweet,
+    tweet_url: &str,
+    tweet: &crate::twitter::Tweet,
+    is_simple_retweet: bool,
+    rt_username: &Option<String>,
+) {
+    if let Some(ref_data) = &ref_tweet.data {
+        // Add retweet header
+        let prefix = if is_simple_retweet {
+            let base = format!("🔁 @{username} retweeted", username = tweet.author.username);
+            match rt_username {
+                Some(username) => format!("{base} @{username}:\n"),
+                None => format!("{base}:\n"),
+            }
+        } else {
+            format!(
+                "🔄 Retweet of @{username}:\n",
+                username = ref_data.author.username
+            )
+        };
+        content.push_str(&prefix);
+
+        // Process the retweeted content
+        let formatter = TweetFormatter {
+            tweet: ref_data,
+            media_urls: &[],
+        };
+        let formatted = formatter.process_content();
+
+        // Add content
+        content.push_str(&formatted.text);
+        content.push('\n');
+
+        // For non-note_tweet cases, add unused media URLs
+        if ref_data.note_tweet.is_none() {
+            let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
+            for url in &tweet_media_urls {
+                if !formatted.used_media_urls.contains(url) {
+                    content.push_str(&format!("{url}\n"));
+                }
+            }
+        }
+
+        // Add link to original tweet
+        content.push_str(&format!("{tweet_url}\n"));
+    } else {
+        // Fallback for simple retweets without data
+        if is_simple_retweet && rt_username.is_some() {
+            if let Some(username) = rt_username {
+                content.push_str(&format!(
+                    "🔁 @{} retweeted @{username}:\n{tweet_url}\n",
+                    tweet.author.username
+                ));
+            }
+        } else {
+            content.push_str(&format!("🔄 Retweet of Tweet {id}\n{tweet_url}\n", id = ref_tweet.id));
+        }
+    }
+}
+
 /// Add referenced tweets (replies, quotes, retweets)
 fn add_referenced_tweets(
     content: &mut String,
@@ -608,220 +872,47 @@ fn add_referenced_tweets(
     is_simple_retweet: bool,
     rt_username: &Option<String>,
 ) {
-    // Add references to other tweets if present
-    if let Some(referenced_tweets) = &tweet.referenced_tweets {
-        for ref_tweet in referenced_tweets {
-            let ref_type = &ref_tweet.type_field;
-            let ref_id = &ref_tweet.id;
+    let Some(referenced_tweets) = &tweet.referenced_tweets else {
+        return;
+    };
 
-            // Try to get username from referenced tweet data if available
-            let username = if let Some(ref_data) = &ref_tweet.data {
-                if !ref_data.author.username.is_empty() {
-                    format!("@{username}", username = ref_data.author.username)
-                } else if let Some(author_id) = &ref_data.author_id {
-                    format!("User {author_id}")
+    for ref_tweet in referenced_tweets {
+        let tweet_url = build_twitter_status_url(&ref_tweet.id);
+
+        match ref_tweet.type_field.as_str() {
+            "replied_to" => format_reply_tweet(content, ref_tweet, &tweet_url),
+            "quoted" => format_quote_tweet(content, ref_tweet, &tweet_url),
+            "retweeted" => format_retweet(
+                content,
+                ref_tweet,
+                &tweet_url,
+                tweet,
+                is_simple_retweet,
+                rt_username,
+            ),
+            _ => {
+                // Generic reference format for unknown types
+                if let Some(ref_data) = &ref_tweet.data {
+                    content.push_str(&format!(
+                        "🔗 Reference to @{username}:\n",
+                        username = ref_data.author.username
+                    ));
+                    let formatter = TweetFormatter {
+                        tweet: ref_data,
+                        media_urls: &[],
+                    };
+                    let formatted = formatter.process_content();
+                    content.push_str(&formatted.text);
+                    content.push('\n');
+                    content.push_str(&format!("{tweet_url}\n"));
                 } else {
-                    format!("Tweet {ref_id}")
-                }
-            } else {
-                // If we have no ref_data, use the tweet ID as reference
-                format!("Tweet {ref_id}")
-            };
-
-            // Create full Twitter URL for the referenced tweet
-            let tweet_url = build_twitter_status_url(ref_id);
-
-            // Add formatted reference based on type
-            // If this is a simple retweet, we'll just show the retweeted content
-            // without the "RT @username:" prefix to avoid duplication
-
-            match ref_type.as_str() {
-                "replied_to" => {
-                    if let Some(ref_data) = &ref_tweet.data {
-                        // Extract media URLs from the referenced tweet
-                        let ref_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
-
-                        // Quote full replied-to tweet: author and text
-                        content.push_str(&format!(
-                            "↩️ Reply to @{username}:\n",
-                            username = ref_data.author.username
-                        ));
-
-                        // Expand URLs in the referenced tweet text (use note_tweet if present)
-                        let ref_raw_text = if let Some(note) = &ref_data.note_tweet {
-                            &note.text
-                        } else {
-                            &ref_data.text
-                        };
-                        let (expanded_ref_text, used_ref_media_urls) = expand_urls_in_text(
-                            ref_raw_text,
-                            ref_data.entities.as_ref(),
-                            &ref_media_urls,
-                            ref_data,
-                        );
-
-                        // Add referenced tweet content
-                        content.push_str(&format!("{expanded_ref_text}\n"));
-
-                        // Add any media URLs that weren't used inline
-                        for url in &ref_media_urls {
-                            if !used_ref_media_urls.contains(url) {
-                                content.push_str(&format!("{url}\n"));
-                            }
-                        }
-                        // Add link to the original referenced tweet
-                        content.push_str(&format!("{tweet_url}\n"));
-                    } else {
-                        // Fallback: simple link if data not available
-                        content.push_str(&format!("↩️ Reply to {username}\n{tweet_url}\n"));
-                    }
-                }
-                "quoted" => {
-                    if let Some(ref_data) = &ref_tweet.data {
-                        // Extract media URLs from the quoted tweet
-                        let qt_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
-
-                        // Show full quoted tweet: author and text
-                        content.push_str(&format!(
-                            "💬 Quote of @{username}:\n",
-                            username = ref_data.author.username
-                        ));
-
-                        // Expand URLs in the quoted text (use note_tweet if present)
-                        let qt_raw_text = if let Some(note) = &ref_data.note_tweet {
-                            &note.text
-                        } else {
-                            &ref_data.text
-                        };
-                        let (expanded_qt_text, used_qt_media_urls) = expand_urls_in_text(
-                            qt_raw_text,
-                            ref_data.entities.as_ref(),
-                            &qt_media_urls,
-                            ref_data,
-                        );
-
-                        // Add quoted tweet content
-                        content.push_str(&format!("{expanded_qt_text}\n"));
-
-                        // Add any media URLs that weren't used inline
-                        for url in &qt_media_urls {
-                            if !used_qt_media_urls.contains(url) {
-                                content.push_str(&format!("{url}\n"));
-                            }
-                        }
-
-                        // Add link to the original quoted tweet
-                        content.push_str(&format!("{tweet_url}\n"));
-                    } else {
-                        // Fallback: simple link if data not available
-                        content.push_str(&format!("💬 Quote of {username}\n{tweet_url}\n"));
-                    }
-                }
-                "retweeted" => {
-                    if let Some(ref_data) = &ref_tweet.data {
-                        // For simple retweets, modify the format to indicate it's just a retweet
-                        let prefix = if is_simple_retweet {
-                            // We already have the author's username from the tweet metadata
-                            let base = format!(
-                                "🔁 @{username} retweeted",
-                                username = tweet.author.username
-                            );
-                            // Try to add the retweeted username if we extracted it from the RT text
-                            match &rt_username {
-                                Some(username) => format!("{base} @{username}:\n"),
-                                None => format!("{base}:\n"),
-                            }
-                        } else {
-                            format!(
-                                "🔄 Retweet of @{username}:\n",
-                                username = ref_data.author.username
-                            )
-                        };
-                        content.push_str(&prefix);
-                        // Extract media URLs from the retweeted tweet
-                        let rt_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
-
-                        // Expand URLs in the retweeted text (use note_tweet if present)
-                        let rt_raw_text = if let Some(note) = &ref_data.note_tweet {
-                            &note.text
-                        } else {
-                            &ref_data.text
-                        };
-                        let (expanded_rt_text, used_rt_media_urls) = expand_urls_in_text(
-                            rt_raw_text,
-                            ref_data.entities.as_ref(),
-                            &rt_media_urls,
-                            ref_data,
-                        );
-
-                        // Add retweeted content
-                        content.push_str(&format!("{expanded_rt_text}\n"));
-
-                        // Add any media URLs that weren't used inline
-                        for url in &rt_media_urls {
-                            if !used_rt_media_urls.contains(url) {
-                                content.push_str(&format!("{url}\n"));
-                            }
-                        }
-                        // Add link to the original retweeted tweet
-                        content.push_str(&format!("{tweet_url}\n"));
-                    } else {
-                        // For simple retweets where we lack the original tweet data,
-                        // try to use the username extracted from the RT text
-                        if is_simple_retweet && rt_username.is_some() {
-                            // Use .as_ref() to borrow the Option's contents rather than moving it
-                            if let Some(username) = rt_username.as_ref() {
-                                content.push_str(&format!(
-                                    "🔁 @{} retweeted @{username}:\n{tweet_url}\n",
-                                    tweet.author.username
-                                ));
-                            }
-                        } else {
-                            // Fallback: simple link if data not available
-                            content.push_str(&format!("🔄 Retweet of {username}\n{tweet_url}\n"));
-                        }
-                    }
-                }
-                _ => {
-                    if let Some(ref_data) = &ref_tweet.data {
-                        // Show full referenced tweet: author and text
-                        content.push_str(&format!(
-                            "🔗 Reference to @{username}:\n",
-                            username = ref_data.author.username
-                        ));
-                        // Expand URLs in the text (use note_tweet if present)
-                        let ref_raw_text = if let Some(note) = &ref_data.note_tweet {
-                            &note.text
-                        } else {
-                            &ref_data.text
-                        };
-                        let (expanded_ref_text, _) = expand_urls_in_text(
-                            ref_raw_text,
-                            ref_data.entities.as_ref(),
-                            &[],
-                            ref_data,
-                        );
-                        content.push_str(&format!("{expanded_ref_text}\n"));
-                        // Include media URLs from the referenced tweet
-                        if let Some(includes) = &ref_data.includes {
-                            if let Some(media_items) = &includes.media {
-                                for media in media_items {
-                                    if let Some(url) = &media.url {
-                                        content.push_str(&format!("{url}\n"));
-                                    }
-                                }
-                            }
-                        }
-                        // Add link to the original referenced tweet
-                        content.push_str(&format!("{tweet_url}\n"));
-                    } else {
-                        // Fallback: simple link if data not available
-                        content.push_str(&format!("🔗 Reference to {username}\n{tweet_url}\n"));
-                    }
+                    content.push_str(&format!(
+                        "🔗 Reference to Tweet {}\n{tweet_url}\n",
+                        ref_tweet.id
+                    ));
                 }
             }
         }
-        content.push('\n');
     }
 }
 
