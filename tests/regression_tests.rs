@@ -281,6 +281,227 @@ mod fixtures {
             "author_id": "3916631"
         }"#).unwrap()
     }
+
+    /// Real douglaz tweet - Cannes reply with media in referenced tweet (from 2025-07-30)
+    pub fn douglaz_cannes_reply_with_media() -> Tweet {
+        serde_json::from_str(r#"{
+            "id": "1950547609602433299",
+            "text": "@dr_orlovsky Cannes is lovely this time of year",
+            "author": {
+                "id": "3916631",
+                "name": "douglaz",
+                "username": "douglaz",
+                "profile_image_url": "https://pbs.twimg.com/profile_images/1639377321386823680/UVcJ5dbZ_normal.jpg",
+                "description": "You may also like npub1yvjmvxh2jx07m945mf2lu4j5kswr0d63n0w6cjddj3vpkw4unp4qjarngj",
+                "url": "https://t.co/fNbahsM4CC",
+                "entities": {
+                    "url": {
+                        "urls": [
+                            {
+                                "url": "https://t.co/fNbahsM4CC",
+                                "expanded_url": "https://github.com/douglaz",
+                                "display_url": "github.com/douglaz"
+                            }
+                        ]
+                    },
+                    "description": null
+                }
+            },
+            "referenced_tweets": [
+                {
+                    "id": "1950211658279759953",
+                    "type": "replied_to",
+                    "data": {
+                        "id": "1950211658279759953",
+                        "text": "Gradually sinking into a depression. I mean of course as an MD being quite good at clinical psychiatry I can manage them (I mean my depressions) - but sometimes managing depression is accepting it for a while.\n\nStill, fighting it as much as I could (see the picture). https://t.co/FfDMcmpoQ2",
+                        "author": {
+                            "id": "90660251",
+                            "name": "Maxim Orlovsky",
+                            "username": "dr_orlovsky",
+                            "profile_image_url": "https://pbs.twimg.com/profile_images/1769400930208829440/76SjVZbM_normal.jpg",
+                            "description": "Ex Tenebrae sententia: sapiens dominabitur astris. Computer and neuro-scientist, cypherpunk, posthumanist. #AI #robotics, vertical progress. #RGB creator",
+                            "url": "https://t.co/DoFzj1mIv2",
+                            "entities": {
+                                "url": {
+                                    "urls": [
+                                        {
+                                            "url": "https://t.co/DoFzj1mIv2",
+                                            "expanded_url": "https://dr.orlovsky.ch",
+                                            "display_url": "dr.orlovsky.ch"
+                                        }
+                                    ]
+                                },
+                                "description": {
+                                    "urls": null,
+                                    "mentions": null,
+                                    "hashtags": [
+                                        {
+                                            "tag": "AI"
+                                        },
+                                        {
+                                            "tag": "robotics"
+                                        },
+                                        {
+                                            "tag": "RGB"
+                                        }
+                                    ]
+                                }
+                            }
+                        },
+                        "referenced_tweets": null,
+                        "attachments": {
+                            "media_keys": [
+                                "3_1950211651019354113"
+                            ]
+                        },
+                        "created_at": "2025-07-29T15:07:47.000Z",
+                        "entities": {
+                            "urls": [
+                                {
+                                    "url": "https://t.co/FfDMcmpoQ2",
+                                    "expanded_url": "https://x.com/dr_orlovsky/status/1950211658279759953/photo/1",
+                                    "display_url": "pic.x.com/FfDMcmpoQ2"
+                                }
+                            ],
+                            "mentions": null,
+                            "hashtags": null
+                        },
+                        "includes": {
+                            "media": [
+                                {
+                                    "media_key": "3_1950211651019354113",
+                                    "type": "photo",
+                                    "url": "https://pbs.twimg.com/media/GxCLKffWMAEBc5X.jpg",
+                                    "preview_image_url": null,
+                                    "alt_text": null,
+                                    "variants": null
+                                }
+                            ],
+                            "users": [
+                                {
+                                    "id": "90660251",
+                                    "name": "Maxim Orlovsky",
+                                    "username": "dr_orlovsky",
+                                    "profile_image_url": "https://pbs.twimg.com/profile_images/1769400930208829440/76SjVZbM_normal.jpg",
+                                    "description": "Ex Tenebrae sententia: sapiens dominabitur astris. Computer and neuro-scientist, cypherpunk, posthumanist. #AI #robotics, vertical progress. #RGB creator",
+                                    "url": "https://t.co/DoFzj1mIv2",
+                                    "entities": {
+                                        "url": {
+                                            "urls": [
+                                                {
+                                                    "url": "https://t.co/DoFzj1mIv2",
+                                                    "expanded_url": "https://dr.orlovsky.ch",
+                                                    "display_url": "dr.orlovsky.ch"
+                                                }
+                                            ]
+                                        },
+                                        "description": {
+                                            "urls": null,
+                                            "mentions": null,
+                                            "hashtags": [
+                                                {
+                                                    "tag": "AI"
+                                                },
+                                                {
+                                                    "tag": "robotics"
+                                                },
+                                                {
+                                                    "tag": "RGB"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ],
+                            "tweets": null
+                        },
+                        "author_id": "90660251"
+                    }
+                }
+            ],
+            "attachments": null,
+            "created_at": "2025-07-30T13:22:44.000Z",
+            "entities": {
+                "urls": null,
+                "mentions": [
+                    {
+                        "username": "dr_orlovsky"
+                    }
+                ],
+                "hashtags": null
+            },
+            "includes": {
+                "media": [
+                    {
+                        "media_key": "3_1950211651019354113",
+                        "type": "photo",
+                        "url": "https://pbs.twimg.com/media/GxCLKffWMAEBc5X.jpg",
+                        "preview_image_url": null,
+                        "alt_text": null,
+                        "variants": null
+                    }
+                ],
+                "users": [
+                    {
+                        "id": "3916631",
+                        "name": "douglaz",
+                        "username": "douglaz",
+                        "profile_image_url": "https://pbs.twimg.com/profile_images/1639377321386823680/UVcJ5dbZ_normal.jpg",
+                        "description": "You may also like npub1yvjmvxh2jx07m945mf2lu4j5kswr0d63n0w6cjddj3vpkw4unp4qjarngj",
+                        "url": "https://t.co/fNbahsM4CC",
+                        "entities": {
+                            "url": {
+                                "urls": [
+                                    {
+                                        "url": "https://t.co/fNbahsM4CC",
+                                        "expanded_url": "https://github.com/douglaz",
+                                        "display_url": "github.com/douglaz"
+                                    }
+                                ]
+                            },
+                            "description": null
+                        }
+                    }
+                ],
+                "tweets": [
+                    {
+                        "id": "1950211658279759953",
+                        "text": "Gradually sinking into a depression. I mean of course as an MD being quite good at clinical psychiatry I can manage them (I mean my depressions) - but sometimes managing depression is accepting it for a while.\n\nStill, fighting it as much as I could (see the picture). https://t.co/FfDMcmpoQ2",
+                        "author": {
+                            "id": "",
+                            "name": null,
+                            "username": "",
+                            "profile_image_url": null,
+                            "description": null,
+                            "url": null,
+                            "entities": null
+                        },
+                        "referenced_tweets": null,
+                        "attachments": {
+                            "media_keys": [
+                                "3_1950211651019354113"
+                            ]
+                        },
+                        "created_at": "2025-07-29T15:07:47.000Z",
+                        "entities": {
+                            "urls": [
+                                {
+                                    "url": "https://t.co/FfDMcmpoQ2",
+                                    "expanded_url": "https://x.com/dr_orlovsky/status/1950211658279759953/photo/1",
+                                    "display_url": "pic.x.com/FfDMcmpoQ2"
+                                }
+                            ],
+                            "mentions": null,
+                            "hashtags": null
+                        },
+                        "includes": null,
+                        "author_id": "90660251"
+                    }
+                ],
+                "author_id": "3916631"
+            }
+        }"#).unwrap()
+    }
 }
 
 #[test]
@@ -955,6 +1176,67 @@ async fn test_show_tweet_pretty_formatting() {
         pretty_json["nostr"]["metadata"]["tags_count"],
         compact_json["nostr"]["metadata"]["tags_count"]
     );
+}
+
+#[tokio::test]
+async fn test_douglaz_cannes_reply_with_referenced_tweet_media() {
+    let tweet = fixtures::douglaz_cannes_reply_with_media();
+    let keys = Keys::generate();
+    let media_urls = vec![];
+
+    let event = create_nostr_event_from_tweet(&tweet, &media_urls, &keys)
+        .await
+        .expect("Failed to create Nostr event");
+
+    // Verify event structure
+    pretty_assertions::assert_eq!(event.kind, Kind::TextNote);
+    pretty_assertions::assert_eq!(event.pubkey, keys.public_key());
+
+    // Verify content formatting
+    let content = &event.content;
+
+    // Main tweet content
+    assert!(content.contains("🐦 @douglaz:"));
+    assert!(content.contains("@dr_orlovsky Cannes is lovely this time of year"));
+
+    // Reply header
+    assert!(content.contains("↩️ Reply to @dr_orlovsky:"));
+
+    // Referenced tweet content (should be fully included)
+    assert!(content.contains("Gradually sinking into a depression"));
+    assert!(content.contains("I mean of course as an MD being quite good at clinical psychiatry"));
+    assert!(content.contains("Still, fighting it as much as I could"));
+
+    // Media URL from referenced tweet should be expanded inline
+    assert!(
+        content.contains("https://pbs.twimg.com/media/GxCLKffWMAEBc5X.jpg"),
+        "Referenced tweet's media URL should be included inline"
+    );
+
+    // t.co URL should NOT be present (it should be replaced with actual media)
+    assert!(
+        !content.contains("https://t.co/FfDMcmpoQ2"),
+        "t.co URL should be replaced with actual media URL"
+    );
+
+    // Referenced tweet link
+    assert!(content.contains("https://twitter.com/i/status/1950211658279759953"));
+
+    // Original tweet link
+    assert!(content.contains("Original tweet: https://twitter.com/i/status/1950547609602433299"));
+
+    // Verify tags
+    let has_twitter_ref = event.tags.iter().any(|tag| {
+        let tag_vec = (*tag).clone().to_vec();
+        tag_vec.len() >= 2 && tag_vec[0] == "r" && tag_vec[1].contains("status/1950547609602433299")
+    });
+    assert!(has_twitter_ref, "Event should have Twitter reference tag");
+
+    // Verify timestamp
+    let expected_timestamp = chrono::DateTime::parse_from_rfc3339("2025-07-30T13:22:44.000Z")
+        .unwrap()
+        .timestamp() as u64;
+    pretty_assertions::assert_eq!(event.created_at.as_u64(), expected_timestamp);
 }
 
 #[tokio::test]

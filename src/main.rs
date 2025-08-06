@@ -25,14 +25,8 @@ mod twitter;
 )]
 struct Cli {
     /// Directory to save the tweet and media
-    #[arg(
-        short,
-        long,
-        default_value = "./downloads",
-        env = "NOSTRWEET_OUTPUT_DIR",
-        global = true
-    )]
-    output_dir: PathBuf,
+    #[arg(short, long, env = "NOSTRWEET_OUTPUT_DIR", global = true)]
+    output_dir: Option<PathBuf>,
 
     /// Verbose output
     #[arg(short, long, global = true)]
@@ -238,31 +232,36 @@ async fn main() -> Result<()> {
         debug!("Verbose mode enabled");
     }
 
+    // Get output directory, ensuring it's provided
+    let output_dir = args.output_dir.context(
+        "Output directory not specified. Please set --output-dir or NOSTRWEET_OUTPUT_DIR environment variable"
+    )?;
+
     // Make sure output directory exists
-    if !args.output_dir.exists() {
-        std::fs::create_dir_all(&args.output_dir).context("Failed to create output directory")?;
+    if !output_dir.exists() {
+        std::fs::create_dir_all(&output_dir).context("Failed to create output directory")?;
         info!(
             "Created output directory: {path}",
-            path = args.output_dir.display()
+            path = output_dir.display()
         );
     }
 
     // Handle subcommands
     match args.command {
         Commands::FetchProfile { username } => {
-            commands::fetch_profile::execute(&username, &args.output_dir).await?
+            commands::fetch_profile::execute(&username, &output_dir).await?
         }
         Commands::FetchTweet { tweet_url_or_id } => {
-            commands::fetch_tweet::execute(&tweet_url_or_id, &args.output_dir).await?
+            commands::fetch_tweet::execute(&tweet_url_or_id, &output_dir).await?
         }
         Commands::UserTweets {
             username,
             count,
             days,
-        } => commands::user_tweets::execute(&username, &args.output_dir, Some(count), days).await?,
-        Commands::ListTweets => commands::list_tweets::execute(&args.output_dir).await?,
+        } => commands::user_tweets::execute(&username, &output_dir, Some(count), days).await?,
+        Commands::ListTweets => commands::list_tweets::execute(&output_dir).await?,
         Commands::ClearCache { force } => {
-            commands::clear_cache::execute(&args.output_dir, force).await?
+            commands::clear_cache::execute(&output_dir, force).await?
         }
         Commands::PostTweetToNostr {
             tweet_url_or_id,
@@ -276,7 +275,7 @@ async fn main() -> Result<()> {
                 &relays,
                 &blossom_servers,
                 private_key.as_deref(),
-                &args.output_dir,
+                &output_dir,
                 force,
             )
             .await?
@@ -293,7 +292,7 @@ async fn main() -> Result<()> {
                 &relays,
                 &blossom_servers,
                 private_key.as_deref(),
-                &args.output_dir,
+                &output_dir,
                 force,
             )
             .await?
@@ -310,7 +309,7 @@ async fn main() -> Result<()> {
                 &relays,
                 &blossom_servers,
                 private_key.as_deref(),
-                &args.output_dir,
+                &output_dir,
                 force,
             )
             .await?
@@ -324,7 +323,7 @@ async fn main() -> Result<()> {
                 &username,
                 &relays,
                 private_key.as_deref(),
-                &args.output_dir,
+                &output_dir,
             )
             .await?
         }
@@ -332,7 +331,7 @@ async fn main() -> Result<()> {
             relays,
             private_key,
         } => commands::update_relay_list::execute(&relays, private_key.as_deref()).await?,
-        Commands::ShowTweet(cmd) => cmd.execute(&args.output_dir).await?,
+        Commands::ShowTweet(cmd) => cmd.execute(&output_dir).await?,
     }
 
     Ok(())
