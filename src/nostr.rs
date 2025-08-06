@@ -114,9 +114,9 @@ fn merge_expanded_urls_into_full_text(
         let needs_space_after = after_char.is_some_and(|c| !c.is_whitespace());
 
         let url_with_spacing = match (needs_space_before, needs_space_after) {
-            (true, true) => format!(" {} ", media_urls[0]),
-            (true, false) => format!(" {}", media_urls[0]),
-            (false, true) => format!("{} ", media_urls[0]),
+            (true, true) => [" ", &media_urls[0], " "].concat(),
+            (true, false) => [" ", &media_urls[0]].concat(),
+            (false, true) => [&media_urls[0], " "].concat(),
             (false, false) => media_urls[0].clone(),
         };
 
@@ -124,7 +124,7 @@ fn merge_expanded_urls_into_full_text(
         result
     } else {
         // Fallback: append at the end
-        format!("{} {}", full_text.trim_end(), media_urls[0])
+        [full_text.trim_end(), " ", &media_urls[0]].concat()
     }
 }
 
@@ -761,8 +761,7 @@ fn format_reply_tweet(
         content.push_str(&format!("{tweet_url}\n"));
     } else {
         // Fallback: simple link if data not available
-        let username = format!("Tweet {}", ref_tweet.id);
-        content.push_str(&format!("↩️ Reply to {username}\n{tweet_url}\n"));
+        content.push_str(&format!("↩️ Reply to Tweet {}\n{tweet_url}\n", ref_tweet.id));
     }
 }
 
@@ -801,8 +800,7 @@ fn format_quote_tweet(
         content.push_str(&format!("{tweet_url}\n"));
     } else {
         // Fallback: simple link if data not available
-        let username = format!("Tweet {}", ref_tweet.id);
-        content.push_str(&format!("💬 Quote of {username}\n{tweet_url}\n"));
+        content.push_str(&format!("💬 Quote of Tweet {}\n{tweet_url}\n", ref_tweet.id));
     }
 }
 
@@ -864,8 +862,7 @@ fn format_retweet(
                 ));
             }
         } else {
-            let username = format!("Tweet {}", ref_tweet.id);
-            content.push_str(&format!("🔄 Retweet of {username}\n{tweet_url}\n"));
+            content.push_str(&format!("🔄 Retweet of Tweet {}\n{tweet_url}\n", ref_tweet.id));
         }
     }
 }
