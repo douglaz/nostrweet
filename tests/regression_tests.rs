@@ -1835,7 +1835,7 @@ fn test_extract_media_urls_from_retweeted_tweet() {
 
     // Check if the main tweet has media
     let main_media_urls = extract_media_urls_from_tweet(&tweet);
-    println!("Main tweet media URLs: {:?}", main_media_urls);
+    println!("Main tweet media URLs: {main_media_urls:?}");
 
     // Check media from referenced tweets
     if let Some(ref_tweets) = &tweet.referenced_tweets {
@@ -1843,8 +1843,8 @@ fn test_extract_media_urls_from_retweeted_tweet() {
             if let Some(ref_data) = &ref_tweet.data {
                 let ref_media_urls = extract_media_urls_from_tweet(ref_data);
                 println!(
-                    "Referenced tweet {} media URLs: {:?}",
-                    ref_data.id, ref_media_urls
+                    "Referenced tweet {} media URLs: {ref_media_urls:?}",
+                    ref_data.id
                 );
 
                 // For the retweeted tweet, we expect to find the video URL
@@ -1860,8 +1860,7 @@ fn test_extract_media_urls_from_retweeted_tweet() {
                         .any(|url| url.contains("video.twimg.com"));
                     assert!(
                         has_video,
-                        "Should extract video URL from retweeted tweet. Found: {:?}",
-                        ref_media_urls
+                        "Should extract video URL from retweeted tweet. Found: {ref_media_urls:?}"
                     );
 
                     // Check the text
@@ -1872,7 +1871,7 @@ fn test_extract_media_urls_from_retweeted_tweet() {
 
                     // Check entities
                     if let Some(entities) = &ref_data.entities {
-                        println!("Retweeted tweet entities: {:?}", entities);
+                        println!("Retweeted tweet entities: {entities:?}");
                     }
                 }
             }
