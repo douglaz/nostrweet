@@ -29,7 +29,7 @@ check:
 
 # Run clippy lints
 clippy:
-    cargo clippy --workspace --all-targets -- --deny warnings --allow deprecated
+    cargo clippy --workspace --all-targets -- --deny warnings
 
 # Fix clippy warnings automatically
 clippy-fix:

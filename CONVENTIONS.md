@@ -127,7 +127,7 @@ For format!, println!, info!, debug!, and similar macros:
 
 2. **Run clippy** - Catches common mistakes and suggests improvements:
    ```bash
-   cargo clippy --locked --offline --workspace --all-targets -- --deny warnings --allow deprecated
+   cargo clippy --locked --offline --workspace --all-targets -- --deny warnings
    ```
 
 3. **Run tests** - Ensures no regressions:
