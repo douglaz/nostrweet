@@ -135,7 +135,6 @@ enum Commands {
         force: bool,
     },
 
-    /// Post a user's latest cached profile to Nostr
     /// Post a single tweet to Nostr relays
     PostTweet {
         /// URL or ID of the tweet to post to Nostr

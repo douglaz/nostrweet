@@ -56,12 +56,6 @@ pub fn now_utc() -> DateTime<Utc> {
     Utc::now()
 }
 
-/// Get current Unix timestamp (seconds since epoch)
-#[allow(dead_code)]
-pub fn unix_timestamp_now() -> i64 {
-    Utc::now().timestamp()
-}
-
 /// Convert Unix timestamp to DateTime
 pub fn from_unix_timestamp(timestamp: i64) -> DateTime<Utc> {
     DateTime::from_timestamp(timestamp, 0).unwrap_or_else(|| {
