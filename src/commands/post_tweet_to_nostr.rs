@@ -116,7 +116,7 @@ pub async fn execute(
                         id = ref_tweet.id,
                         dir = output_dir.display()
                     );
-                    
+
                     // First check in the current output directory
                     let mut existing_path =
                         storage::find_existing_tweet_json(&ref_tweet.id, output_dir);
