@@ -37,11 +37,26 @@ pub fn find_existing_tweet_json(tweet_id: &str, output_dir: &Path) -> Option<Pat
 /// Search for a tweet JSON file across all likely directories
 /// This is useful for finding referenced tweets that might be in different locations
 pub fn find_tweet_in_all_directories(tweet_id: &str) -> Option<PathBuf> {
-    // Check configured cache directory only
-    if let Ok(cache_path) = std::env::var("NOSTRWEET_CACHE_DIR") {
-        let cache_dir = PathBuf::from(cache_path);
-        if let Some(path) = find_existing_tweet_json(tweet_id, &cache_dir) {
-            return Some(path);
+    // List of directories to search in priority order
+    let search_dirs = vec![
+        // 1. Configured output directory from environment
+        std::env::var("NOSTRWEET_OUTPUT_DIR")
+            .ok()
+            .map(PathBuf::from),
+        // 2. Configured cache directory
+        std::env::var("NOSTRWEET_CACHE_DIR").ok().map(PathBuf::from),
+    ];
+
+    // Search in each directory
+    for dir_option in search_dirs.into_iter().flatten() {
+        if dir_option.exists() {
+            if let Some(path) = find_existing_tweet_json(tweet_id, &dir_option) {
+                debug!(
+                    "Found tweet {tweet_id} in {dir}",
+                    dir = dir_option.display()
+                );
+                return Some(path);
+            }
         }
     }
 

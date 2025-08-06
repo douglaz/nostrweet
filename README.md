@@ -249,7 +249,8 @@ cargo test
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
 | `TWITTER_BEARER_TOKEN` | Twitter API bearer token | Yes | - |
-| `NOSTRWEET_CACHE_DIR` | Cache directory path | No | `./downloads` |
+| `NOSTRWEET_OUTPUT_DIR` | Output directory for tweets and media | Yes (or use `-o` flag) | - |
+| `NOSTRWEET_CACHE_DIR` | Additional cache directory path | No | - |
 | `RUST_LOG` | Logging level | No | `info` |
 
 ## Contributing

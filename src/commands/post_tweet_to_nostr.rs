@@ -111,16 +111,32 @@ pub async fn execute(
         if let Some(ref_tweets) = &mut tweet.referenced_tweets {
             for ref_tweet in ref_tweets {
                 if ref_tweet.data.is_none() {
-                    // Check if we can find the referenced tweet in any directory
-                    if let Some(existing_path) =
-                        storage::find_tweet_in_all_directories(&ref_tweet.id)
-                    {
-                        match storage::load_tweet_from_file(&existing_path) {
+                    debug!(
+                        "Looking for referenced tweet {id} in output_dir: {dir}",
+                        id = ref_tweet.id,
+                        dir = output_dir.display()
+                    );
+                    
+                    // First check in the current output directory
+                    let mut existing_path =
+                        storage::find_existing_tweet_json(&ref_tweet.id, output_dir);
+
+                    // If not found, check in all other directories
+                    if existing_path.is_none() {
+                        debug!(
+                            "Referenced tweet {id} not found in output_dir, checking other directories",
+                            id = ref_tweet.id
+                        );
+                        existing_path = storage::find_tweet_in_all_directories(&ref_tweet.id);
+                    }
+
+                    if let Some(path) = existing_path {
+                        match storage::load_tweet_from_file(&path) {
                             Ok(referenced_tweet) => {
                                 debug!(
                                     "Found referenced tweet {id} in cache: {path}",
                                     id = ref_tweet.id,
-                                    path = existing_path.display()
+                                    path = path.display()
                                 );
                                 ref_tweet.data = Some(Box::new(referenced_tweet));
                             }
