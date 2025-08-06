@@ -749,9 +749,15 @@ fn test_parse_simple_tweet() -> anyhow::Result<()> {
 fn test_parse_tweet_with_url() -> anyhow::Result<()> {
     let tweet = fixtures::tweet_with_url();
     assert!(tweet.entities.is_some());
-    let entities = tweet.entities.as_ref().ok_or_else(|| anyhow::anyhow!("entities missing"))?;
+    let entities = tweet
+        .entities
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("entities missing"))?;
     assert!(entities.urls.is_some());
-    let urls = entities.urls.as_ref().ok_or_else(|| anyhow::anyhow!("urls missing"))?;
+    let urls = entities
+        .urls
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("urls missing"))?;
     pretty_assertions::assert_eq!(urls.len(), 1);
     pretty_assertions::assert_eq!(
         urls[0].expanded_url,
