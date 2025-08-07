@@ -41,14 +41,20 @@ impl TweetFormatter<'_> {
         let tweet_media_urls = crate::media::extract_media_urls_from_tweet(self.tweet);
 
         // Get the appropriate text (note_tweet has full text, regular text may be truncated)
-        let (base_text, has_note_tweet) = if let Some(note) = &self.tweet.note_tweet {
+        let (raw_base_text, has_note_tweet) = if let Some(note) = &self.tweet.note_tweet {
             (&note.text as &str, true)
         } else {
             (&self.tweet.text as &str, false)
         };
 
+        // Decode HTML entities in the text
+        let decoded_base_text = decode_html_entities(raw_base_text);
+        let base_text = decoded_base_text.as_str();
+
         // For URL expansion, we need the text that contains t.co URLs
-        let text_for_expansion = &self.tweet.text;
+        // Also decode HTML entities in the expansion text
+        let decoded_expansion_text = decode_html_entities(&self.tweet.text);
+        let text_for_expansion = decoded_expansion_text.as_str();
 
         // Expand URLs in the text
         let (expanded_text, mut used_media_urls) = expand_urls_in_text(
@@ -109,14 +115,20 @@ impl TweetFormatter<'_> {
         let tweet_media_urls = crate::media::extract_media_urls_from_tweet(self.tweet);
 
         // Get the appropriate text (note_tweet has full text, regular text may be truncated)
-        let (base_text, has_note_tweet) = if let Some(note) = &self.tweet.note_tweet {
+        let (raw_base_text, has_note_tweet) = if let Some(note) = &self.tweet.note_tweet {
             (&note.text as &str, true)
         } else {
             (&self.tweet.text as &str, false)
         };
 
+        // Decode HTML entities in the text
+        let decoded_base_text = decode_html_entities(raw_base_text);
+        let base_text = decoded_base_text.as_str();
+
         // For URL expansion, we need the text that contains t.co URLs
-        let text_for_expansion = &self.tweet.text;
+        // Also decode HTML entities in the expansion text
+        let decoded_expansion_text = decode_html_entities(&self.tweet.text);
+        let text_for_expansion = decoded_expansion_text.as_str();
 
         // Expand URLs in the text
         let (expanded_text, mut used_media_urls) = expand_urls_in_text(
@@ -732,6 +744,11 @@ fn process_mentions_in_text(
     Ok((result, mentioned_pubkeys))
 }
 
+/// Decode HTML entities in text (e.g., &gt; to >, &lt; to <, &amp; to &)
+fn decode_html_entities(text: &str) -> String {
+    html_escape::decode_html_entities(text).to_string()
+}
+
 /// Format a tweet as Nostr content with mention resolution
 pub fn format_tweet_as_nostr_content_with_mentions(
     tweet: &crate::twitter::Tweet,
@@ -872,9 +889,12 @@ fn add_tweet_content_with_mentions(
         &tweet.text
     };
 
-    // First expand URLs
+    // Decode HTML entities first
+    let decoded_text = decode_html_entities(raw_text);
+
+    // Then expand URLs
     let (expanded_text, used_media_urls) =
-        expand_urls_in_text(raw_text, tweet.entities.as_ref(), media_urls, tweet);
+        expand_urls_in_text(&decoded_text, tweet.entities.as_ref(), media_urls, tweet);
 
     // Then process mentions
     let (text_with_mentions, mentioned_pubkeys) =
@@ -905,8 +925,12 @@ fn add_tweet_content(
     } else {
         &tweet.text
     };
+
+    // Decode HTML entities first
+    let decoded_text = decode_html_entities(raw_text);
+
     let (expanded_text, used_media_urls) =
-        expand_urls_in_text(raw_text, tweet.entities.as_ref(), media_urls, tweet);
+        expand_urls_in_text(&decoded_text, tweet.entities.as_ref(), media_urls, tweet);
     content.push_str(&expanded_text);
     content.push_str("\n\n");
 
@@ -1568,6 +1592,35 @@ mod tests {
     }
 
     #[test]
+    fn test_decode_html_entities() {
+        // Test common HTML entities
+        assert_eq!(decode_html_entities("&gt;"), ">");
+        assert_eq!(decode_html_entities("&lt;"), "<");
+        assert_eq!(decode_html_entities("&amp;"), "&");
+        assert_eq!(decode_html_entities("&quot;"), "\"");
+        assert_eq!(decode_html_entities("&#39;"), "'");
+
+        // Test in context
+        assert_eq!(
+            decode_html_entities("Boa ditadura &gt; Democracia mediana"),
+            "Boa ditadura > Democracia mediana"
+        );
+        assert_eq!(decode_html_entities("A &amp; B &lt; C"), "A & B < C");
+
+        // Test multiple entities
+        assert_eq!(
+            decode_html_entities("&lt;html&gt;&amp;&quot;test&quot;&lt;/html&gt;"),
+            "<html>&\"test\"</html>"
+        );
+
+        // Test no entities
+        assert_eq!(
+            decode_html_entities("Normal text without entities"),
+            "Normal text without entities"
+        );
+    }
+
+    #[test]
     fn test_process_mentions_in_text() -> Result<()> {
         let tweet = create_test_tweet_with_mentions();
         let mut resolver = NostrLinkResolver::new(None);
@@ -1681,6 +1734,20 @@ mod tests {
         assert!(mentioned_pubkeys.len() >= 2); // alice + replyuser at minimum
 
         Ok(())
+    }
+
+    #[test]
+    fn test_format_tweet_with_html_entities() {
+        let mut tweet = create_test_tweet();
+        tweet.text = "This tweet has &gt; and &lt; and &amp; symbols".to_string();
+
+        let content = format_tweet_as_nostr_content(&tweet, &[]);
+
+        // Check that HTML entities are decoded
+        assert!(content.contains("This tweet has > and < and & symbols"));
+        assert!(!content.contains("&gt;"));
+        assert!(!content.contains("&lt;"));
+        assert!(!content.contains("&amp;"));
     }
 
     #[test]
