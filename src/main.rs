@@ -12,6 +12,7 @@ mod filename_utils;
 mod keys;
 mod media;
 mod nostr;
+mod nostr_linking;
 mod storage;
 mod twitter;
 

@@ -1,9 +1,12 @@
+use crate::nostr_linking::NostrLinkResolver;
 use anyhow::{bail, Context, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use nostr_sdk::nips::nip65::RelayMetadata;
+use nostr_sdk::ToBech32;
 use nostr_sdk::{
-    Client, Event, EventBuilder, Filter, Keys, Kind, RelayUrl, SubscriptionId, Tag, Timestamp, Url,
+    Client, Event, EventBuilder, Filter, Keys, Kind, PublicKey, RelayUrl, SubscriptionId, Tag,
+    Timestamp, Url,
 };
 use reqwest::{header::RETRY_AFTER, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -21,15 +24,85 @@ use url::Url as UrlParser;
 struct TweetFormatter<'a> {
     tweet: &'a crate::twitter::Tweet,
     media_urls: &'a [String],
+    resolver: &'a mut NostrLinkResolver,
 }
 
 /// Result of formatting tweet content
 struct FormattedContent {
     text: String,
     used_media_urls: Vec<String>,
+    mentioned_pubkeys: Vec<PublicKey>,
 }
 
 impl TweetFormatter<'_> {
+    /// Process tweet content with mention resolution
+    fn process_content_with_mentions(&mut self) -> Result<FormattedContent> {
+        // Extract media URLs from the tweet
+        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(self.tweet);
+
+        // Get the appropriate text (note_tweet has full text, regular text may be truncated)
+        let (base_text, has_note_tweet) = if let Some(note) = &self.tweet.note_tweet {
+            (&note.text as &str, true)
+        } else {
+            (&self.tweet.text as &str, false)
+        };
+
+        // For URL expansion, we need the text that contains t.co URLs
+        let text_for_expansion = &self.tweet.text;
+
+        // Expand URLs in the text
+        let (expanded_text, mut used_media_urls) = expand_urls_in_text(
+            text_for_expansion,
+            self.tweet.entities.as_ref(),
+            &tweet_media_urls,
+            self.tweet,
+        );
+
+        // Process mentions in the expanded text
+        let (text_with_mentions, mentioned_pubkeys) =
+            process_mentions_in_text(&expanded_text, self.tweet.entities.as_ref(), self.resolver)?;
+
+        // For note_tweet, we need to apply the same expansions to the full text
+        let final_text = if has_note_tweet {
+            // Apply URL expansion to the full note_tweet text
+            // Note: note_tweet doesn't have its own entities, so we use the main tweet's entities
+            let (note_expanded_text, note_used_media) = expand_urls_in_text(
+                base_text,
+                self.tweet.entities.as_ref(),
+                &tweet_media_urls,
+                self.tweet,
+            );
+
+            // Apply mention processing to the expanded note text
+            let (note_with_mentions, note_mentioned_pubkeys) = process_mentions_in_text(
+                &note_expanded_text,
+                self.tweet.entities.as_ref(),
+                self.resolver,
+            )?;
+
+            // Update used media URLs if any were used in note_tweet expansion
+            used_media_urls.extend(note_used_media);
+
+            // Combine mentioned pubkeys
+            let mut all_mentioned_pubkeys = mentioned_pubkeys;
+            all_mentioned_pubkeys.extend(note_mentioned_pubkeys);
+
+            FormattedContent {
+                text: note_with_mentions,
+                used_media_urls,
+                mentioned_pubkeys: all_mentioned_pubkeys,
+            }
+        } else {
+            FormattedContent {
+                text: text_with_mentions,
+                used_media_urls,
+                mentioned_pubkeys,
+            }
+        };
+
+        Ok(final_text)
+    }
+
     /// Process tweet content: extract media, expand URLs, handle note_tweet
     fn process_content(&self) -> FormattedContent {
         // Extract media URLs from the tweet
@@ -72,6 +145,7 @@ impl TweetFormatter<'_> {
         FormattedContent {
             text: final_text,
             used_media_urls,
+            mentioned_pubkeys: Vec::new(),
         }
     }
 }
@@ -616,7 +690,88 @@ fn find_media_url_for_shortened_url(
     None
 }
 
-/// Format a tweet as Nostr content
+/// Process mentions in the text and convert Twitter usernames to Nostr npub links
+/// Returns the processed text and a list of mentioned pubkeys
+fn process_mentions_in_text(
+    text: &str,
+    entities: Option<&crate::twitter::Entities>,
+    resolver: &mut NostrLinkResolver,
+) -> Result<(String, Vec<PublicKey>)> {
+    let mut result = text.to_string();
+    let mut mentioned_pubkeys = Vec::new();
+
+    if let Some(entities) = entities {
+        if let Some(mentions) = &entities.mentions {
+            // Process each mention
+            for mention in mentions {
+                let username = &mention.username;
+
+                // Try to resolve the Twitter username to a Nostr pubkey
+                if let Some(pubkey) = resolver.resolve_username(username)? {
+                    // Convert pubkey to npub format
+                    let npub = pubkey
+                        .to_bech32()
+                        .map_err(|e| anyhow::anyhow!("Failed to convert to bech32: {e}"))?;
+
+                    // Replace @username with nostr:npub... link
+                    let old_mention = format!("@{username}");
+                    let new_mention = format!("nostr:{npub}");
+                    result = result.replace(&old_mention, &new_mention);
+
+                    // Add to mentioned pubkeys list
+                    mentioned_pubkeys.push(pubkey);
+
+                    debug!("Converted @{username} to {npub}");
+                } else {
+                    debug!("Could not resolve @{username} to Nostr pubkey, keeping as-is");
+                }
+            }
+        }
+    }
+
+    Ok((result, mentioned_pubkeys))
+}
+
+/// Format a tweet as Nostr content with mention resolution
+pub fn format_tweet_as_nostr_content_with_mentions(
+    tweet: &crate::twitter::Tweet,
+    media_urls: &[String],
+    resolver: &mut NostrLinkResolver,
+) -> Result<(String, Vec<PublicKey>)> {
+    let mut content = String::new();
+    let mut all_mentioned_pubkeys = Vec::new();
+
+    let (is_simple_retweet, rt_username) = analyze_retweet(tweet);
+
+    add_author_info(&mut content, tweet, is_simple_retweet);
+    let (used_media_urls, mentioned_pubkeys) = add_tweet_content_with_mentions(
+        &mut content,
+        tweet,
+        is_simple_retweet,
+        media_urls,
+        resolver,
+    )?;
+    all_mentioned_pubkeys.extend(mentioned_pubkeys);
+
+    let ref_mentioned_pubkeys = add_referenced_tweets_with_mentions(
+        &mut content,
+        tweet,
+        is_simple_retweet,
+        &rt_username,
+        resolver,
+    )?;
+    all_mentioned_pubkeys.extend(ref_mentioned_pubkeys);
+
+    // For simple retweets, don't add media URLs since they belong to the retweeted content
+    if !is_simple_retweet {
+        add_media_urls(&mut content, media_urls, &used_media_urls);
+    }
+    add_original_tweet_url(&mut content, &tweet.id);
+
+    Ok((content, all_mentioned_pubkeys))
+}
+
+/// Format a tweet as Nostr content (legacy version without mention resolution)
 pub fn format_tweet_as_nostr_content(
     tweet: &crate::twitter::Tweet,
     media_urls: &[String],
@@ -693,6 +848,44 @@ fn add_author_info(content: &mut String, tweet: &crate::twitter::Tweet, is_simpl
     }
 }
 
+/// Add the main tweet content with mention resolution
+/// Returns the list of media URLs that were used inline and mentioned pubkeys
+fn add_tweet_content_with_mentions(
+    content: &mut String,
+    tweet: &crate::twitter::Tweet,
+    is_simple_retweet: bool,
+    media_urls: &[String],
+    resolver: &mut NostrLinkResolver,
+) -> Result<(Vec<String>, Vec<PublicKey>)> {
+    if is_simple_retweet {
+        return Ok((Vec::new(), Vec::new()));
+    }
+
+    // Add the tweet author to the resolver so mentions can find them
+    resolver.add_known_user(&tweet.author.username, &tweet.author.id)?;
+
+    // Add tweet text with expanded URLs
+    // Prefer extended text when available
+    let raw_text = if let Some(note) = &tweet.note_tweet {
+        &note.text
+    } else {
+        &tweet.text
+    };
+
+    // First expand URLs
+    let (expanded_text, used_media_urls) =
+        expand_urls_in_text(raw_text, tweet.entities.as_ref(), media_urls, tweet);
+
+    // Then process mentions
+    let (text_with_mentions, mentioned_pubkeys) =
+        process_mentions_in_text(&expanded_text, tweet.entities.as_ref(), resolver)?;
+
+    content.push_str(&text_with_mentions);
+    content.push_str("\n\n");
+
+    Ok((used_media_urls, mentioned_pubkeys))
+}
+
 /// Add the main tweet content
 /// Returns the list of media URLs that were used inline
 fn add_tweet_content(
@@ -720,6 +913,71 @@ fn add_tweet_content(
     used_media_urls
 }
 
+/// Format a reply tweet with mention resolution
+fn format_reply_tweet_with_mentions(
+    content: &mut String,
+    ref_tweet: &crate::twitter::ReferencedTweet,
+    tweet_url: &str,
+    resolver: &mut NostrLinkResolver,
+) -> Result<Vec<PublicKey>> {
+    let mut mentioned_pubkeys = Vec::new();
+
+    if let Some(ref_data) = &ref_tweet.data {
+        // Add the referenced tweet author to resolver
+        resolver.add_known_user(&ref_data.author.username, &ref_data.author.id)?;
+
+        // Try to resolve the referenced author to a Nostr pubkey
+        let author_npub =
+            if let Some(pubkey) = resolver.resolve_username(&ref_data.author.username)? {
+                mentioned_pubkeys.push(pubkey);
+                pubkey
+                    .to_bech32()
+                    .map_err(|e| anyhow::anyhow!("Failed to convert to bech32: {e}"))?
+            } else {
+                // Fallback to Twitter username if we can't resolve
+                format!("@{}", ref_data.author.username)
+            };
+
+        let mut formatter = TweetFormatter {
+            tweet: ref_data,
+            media_urls: &[],
+            resolver,
+        };
+        let formatted = formatter.process_content_with_mentions()?;
+        mentioned_pubkeys.extend(formatted.mentioned_pubkeys);
+
+        // Add reply header with Nostr link if resolved
+        if author_npub.starts_with("npub") {
+            content.push_str(&format!("↩️ Reply to nostr:{author_npub}:\n"));
+        } else {
+            content.push_str(&format!("↩️ Reply to {author_npub}:\n"));
+        }
+
+        // Add content
+        content.push_str(&formatted.text);
+        content.push('\n');
+
+        // Add any unused media URLs
+        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
+        for url in &tweet_media_urls {
+            if !formatted.used_media_urls.contains(url) {
+                content.push_str(&format!("{url}\n"));
+            }
+        }
+
+        // Add link to original tweet
+        content.push_str(&format!("{tweet_url}\n"));
+    } else {
+        // Fallback: simple link if data not available
+        content.push_str(&format!(
+            "↩️ Reply to Tweet {id}\n{tweet_url}\n",
+            id = ref_tweet.id
+        ));
+    }
+
+    Ok(mentioned_pubkeys)
+}
+
 /// Format a reply tweet
 fn format_reply_tweet(
     content: &mut String,
@@ -727,9 +985,12 @@ fn format_reply_tweet(
     tweet_url: &str,
 ) {
     if let Some(ref_data) = &ref_tweet.data {
+        // Legacy formatter without mention resolution
+        let mut dummy_resolver = NostrLinkResolver::new(None);
         let formatter = TweetFormatter {
             tweet: ref_data,
             media_urls: &[],
+            resolver: &mut dummy_resolver,
         };
         let formatted = formatter.process_content();
 
@@ -762,6 +1023,71 @@ fn format_reply_tweet(
     }
 }
 
+/// Format a quoted tweet with mention resolution
+fn format_quote_tweet_with_mentions(
+    content: &mut String,
+    ref_tweet: &crate::twitter::ReferencedTweet,
+    tweet_url: &str,
+    resolver: &mut NostrLinkResolver,
+) -> Result<Vec<PublicKey>> {
+    let mut mentioned_pubkeys = Vec::new();
+
+    if let Some(ref_data) = &ref_tweet.data {
+        // Add the quoted tweet author to resolver
+        resolver.add_known_user(&ref_data.author.username, &ref_data.author.id)?;
+
+        // Try to resolve the quoted author to a Nostr pubkey
+        let author_npub =
+            if let Some(pubkey) = resolver.resolve_username(&ref_data.author.username)? {
+                mentioned_pubkeys.push(pubkey);
+                pubkey
+                    .to_bech32()
+                    .map_err(|e| anyhow::anyhow!("Failed to convert to bech32: {e}"))?
+            } else {
+                // Fallback to Twitter username if we can't resolve
+                format!("@{}", ref_data.author.username)
+            };
+
+        let mut formatter = TweetFormatter {
+            tweet: ref_data,
+            media_urls: &[],
+            resolver,
+        };
+        let formatted = formatter.process_content_with_mentions()?;
+        mentioned_pubkeys.extend(formatted.mentioned_pubkeys);
+
+        // Add quote header with Nostr link if resolved
+        if author_npub.starts_with("npub") {
+            content.push_str(&format!("💬 Quote of nostr:{author_npub}:\n"));
+        } else {
+            content.push_str(&format!("💬 Quote of {author_npub}:\n"));
+        }
+
+        // Add content
+        content.push_str(&formatted.text);
+        content.push('\n');
+
+        // Add any unused media URLs
+        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
+        for url in &tweet_media_urls {
+            if !formatted.used_media_urls.contains(url) {
+                content.push_str(&format!("{url}\n"));
+            }
+        }
+
+        // Add link to original tweet
+        content.push_str(&format!("{tweet_url}\n"));
+    } else {
+        // Fallback: simple link if data not available
+        content.push_str(&format!(
+            "💬 Quote of Tweet {id}\n{tweet_url}\n",
+            id = ref_tweet.id
+        ));
+    }
+
+    Ok(mentioned_pubkeys)
+}
+
 /// Format a quoted tweet
 fn format_quote_tweet(
     content: &mut String,
@@ -769,9 +1095,12 @@ fn format_quote_tweet(
     tweet_url: &str,
 ) {
     if let Some(ref_data) = &ref_tweet.data {
+        // Legacy formatter without mention resolution
+        let mut dummy_resolver = NostrLinkResolver::new(None);
         let formatter = TweetFormatter {
             tweet: ref_data,
             media_urls: &[],
+            resolver: &mut dummy_resolver,
         };
         let formatted = formatter.process_content();
 
@@ -804,6 +1133,116 @@ fn format_quote_tweet(
     }
 }
 
+/// Format a retweet with mention resolution
+fn format_retweet_with_mentions(
+    content: &mut String,
+    ref_tweet: &crate::twitter::ReferencedTweet,
+    tweet_url: &str,
+    tweet: &crate::twitter::Tweet,
+    is_simple_retweet: bool,
+    rt_username: &Option<String>,
+    resolver: &mut NostrLinkResolver,
+) -> Result<Vec<PublicKey>> {
+    let mut mentioned_pubkeys = Vec::new();
+
+    if let Some(ref_data) = &ref_tweet.data {
+        // Add the retweeted author to resolver
+        resolver.add_known_user(&ref_data.author.username, &ref_data.author.id)?;
+
+        // Try to resolve the retweeted author to a Nostr pubkey
+        let author_npub =
+            if let Some(pubkey) = resolver.resolve_username(&ref_data.author.username)? {
+                mentioned_pubkeys.push(pubkey);
+                pubkey
+                    .to_bech32()
+                    .map_err(|e| anyhow::anyhow!("Failed to convert to bech32: {e}"))?
+            } else {
+                // Fallback to Twitter username if we can't resolve
+                format!("@{}", ref_data.author.username)
+            };
+
+        // Add retweet header
+        let prefix = if is_simple_retweet {
+            let base = format!("🔁 @{username} retweeted", username = tweet.author.username);
+            if let Some(username) = rt_username {
+                // Try to resolve the rt_username too
+                if let Some(pubkey) = resolver.resolve_username(username)? {
+                    mentioned_pubkeys.push(pubkey);
+                    let npub = pubkey
+                        .to_bech32()
+                        .map_err(|e| anyhow::anyhow!("Failed to convert to bech32: {e}"))?;
+                    format!("{base} nostr:{npub}:\n")
+                } else {
+                    format!("{base} @{username}:\n")
+                }
+            } else if author_npub.starts_with("npub") {
+                format!("{base} nostr:{author_npub}:\n")
+            } else {
+                format!("{base} {author_npub}:\n")
+            }
+        } else if author_npub.starts_with("npub") {
+            format!("🔄 Retweet of nostr:{author_npub}:\n")
+        } else {
+            format!("🔄 Retweet of {author_npub}:\n")
+        };
+        content.push_str(&prefix);
+
+        // Process the retweeted content
+        let mut formatter = TweetFormatter {
+            tweet: ref_data,
+            media_urls: &[],
+            resolver,
+        };
+        let formatted = formatter.process_content_with_mentions()?;
+        mentioned_pubkeys.extend(formatted.mentioned_pubkeys);
+
+        // Add content
+        content.push_str(&formatted.text);
+        content.push('\n');
+
+        // For non-note_tweet cases, add unused media URLs
+        if ref_data.note_tweet.is_none() {
+            let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
+            for url in &tweet_media_urls {
+                if !formatted.used_media_urls.contains(url) {
+                    content.push_str(&format!("{url}\n"));
+                }
+            }
+        }
+
+        // Add link to original tweet
+        content.push_str(&format!("{tweet_url}\n"));
+    } else {
+        // Fallback for simple retweets without data
+        if is_simple_retweet && rt_username.is_some() {
+            let username = rt_username.as_ref().unwrap();
+            // Try to resolve the username
+            if let Some(pubkey) = resolver.resolve_username(username)? {
+                mentioned_pubkeys.push(pubkey);
+                let npub = pubkey
+                    .to_bech32()
+                    .map_err(|e| anyhow::anyhow!("Failed to convert to bech32: {e}"))?;
+                content.push_str(&format!(
+                    "🔁 @{author} retweeted nostr:{npub}:\n{tweet_url}\n",
+                    author = tweet.author.username
+                ));
+            } else {
+                content.push_str(&format!(
+                    "🔁 @{author} retweeted @{username}:\n{tweet_url}\n",
+                    author = tweet.author.username
+                ));
+            }
+        } else {
+            content.push_str(&format!(
+                "🔄 Retweet of Tweet {id}\n{tweet_url}\n",
+                id = ref_tweet.id
+            ));
+        }
+    }
+
+    Ok(mentioned_pubkeys)
+}
+
 /// Format a retweet
 fn format_retweet(
     content: &mut String,
@@ -830,9 +1269,12 @@ fn format_retweet(
         content.push_str(&prefix);
 
         // Process the retweeted content
+        // Legacy formatter without mention resolution
+        let mut dummy_resolver = NostrLinkResolver::new(None);
         let formatter = TweetFormatter {
             tweet: ref_data,
             media_urls: &[],
+            resolver: &mut dummy_resolver,
         };
         let formatted = formatter.process_content();
 
@@ -870,6 +1312,61 @@ fn format_retweet(
     }
 }
 
+/// Add referenced tweets with mention resolution
+fn add_referenced_tweets_with_mentions(
+    content: &mut String,
+    tweet: &crate::twitter::Tweet,
+    is_simple_retweet: bool,
+    rt_username: &Option<String>,
+    resolver: &mut NostrLinkResolver,
+) -> Result<Vec<PublicKey>> {
+    let Some(referenced_tweets) = &tweet.referenced_tweets else {
+        return Ok(Vec::new());
+    };
+
+    let mut all_mentioned_pubkeys = Vec::new();
+
+    for ref_tweet in referenced_tweets {
+        let tweet_url = build_twitter_status_url(&ref_tweet.id);
+
+        let mentioned_pubkeys = match ref_tweet.type_field.as_str() {
+            "replied_to" => {
+                format_reply_tweet_with_mentions(content, ref_tweet, &tweet_url, resolver)?
+            }
+            "quoted" => format_quote_tweet_with_mentions(content, ref_tweet, &tweet_url, resolver)?,
+            "retweeted" => format_retweet_with_mentions(
+                content,
+                ref_tweet,
+                &tweet_url,
+                tweet,
+                is_simple_retweet,
+                rt_username,
+                resolver,
+            )?,
+            _ => {
+                // Generic reference format for unknown types
+                if let Some(ref_data) = &ref_tweet.data {
+                    content.push_str(&format!(
+                        "📎 Reference to @{username}'s tweet ({type_field})\n{tweet_url}\n",
+                        username = ref_data.author.username,
+                        type_field = ref_tweet.type_field
+                    ));
+                } else {
+                    content.push_str(&format!(
+                        "📎 Reference to tweet ({type_field})\n{tweet_url}\n",
+                        type_field = ref_tweet.type_field
+                    ));
+                }
+                Vec::new()
+            }
+        };
+
+        all_mentioned_pubkeys.extend(mentioned_pubkeys);
+    }
+
+    Ok(all_mentioned_pubkeys)
+}
+
 /// Add referenced tweets (replies, quotes, retweets)
 fn add_referenced_tweets(
     content: &mut String,
@@ -902,9 +1399,12 @@ fn add_referenced_tweets(
                         "🔗 Reference to @{username}:\n",
                         username = ref_data.author.username
                     ));
+                    // Legacy formatter without mention resolution
+                    let mut dummy_resolver = NostrLinkResolver::new(None);
                     let formatter = TweetFormatter {
                         tweet: ref_data,
                         media_urls: &[],
+                        resolver: &mut dummy_resolver,
                     };
                     let formatted = formatter.process_content();
                     content.push_str(&formatted.text);
@@ -1021,12 +1521,166 @@ mod tests {
         }
     }
 
+    fn create_test_tweet_with_mentions() -> Tweet {
+        Tweet {
+            id: "123456789".to_string(),
+            text: "Hello @alice and @bob! Check this out https://t.co/abc123".to_string(),
+            author: User {
+                id: "987654321".to_string(),
+                name: Some("Test User".to_string()),
+                username: "testuser".to_string(),
+                profile_image_url: None,
+                description: None,
+                url: None,
+                entities: None,
+            },
+            referenced_tweets: None,
+            attachments: None,
+            created_at: "2023-01-01T00:00:00Z".to_string(),
+            entities: Some(Entities {
+                urls: Some(vec![UrlEntity {
+                    url: "https://t.co/abc123".to_string(),
+                    expanded_url: "https://example.com/article".to_string(),
+                    display_url: "example.com/article".to_string(),
+                }]),
+                hashtags: None,
+                mentions: Some(vec![
+                    crate::twitter::Mention {
+                        username: "alice".to_string(),
+                    },
+                    crate::twitter::Mention {
+                        username: "bob".to_string(),
+                    },
+                ]),
+            }),
+            includes: None,
+            author_id: Some("987654321".to_string()),
+            note_tweet: None,
+        }
+    }
+
     #[test]
     fn test_build_twitter_status_url() {
         assert_eq!(
             build_twitter_status_url("123456789"),
             "https://twitter.com/i/status/123456789"
         );
+    }
+
+    #[test]
+    fn test_process_mentions_in_text() -> Result<()> {
+        let tweet = create_test_tweet_with_mentions();
+        let mut resolver = NostrLinkResolver::new(None);
+
+        // Add known users to resolver
+        resolver.add_known_user("alice", "111111")?;
+        resolver.add_known_user("bob", "222222")?;
+
+        let (processed_text, mentioned_pubkeys) =
+            process_mentions_in_text(&tweet.text, tweet.entities.as_ref(), &mut resolver)?;
+
+        // Check that mentions were converted to nostr: links
+        assert!(processed_text.contains("nostr:npub"));
+        assert!(!processed_text.contains("@alice"));
+        assert!(!processed_text.contains("@bob"));
+
+        // Check that we have 2 mentioned pubkeys
+        assert_eq!(mentioned_pubkeys.len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_process_mentions_unknown_users() -> Result<()> {
+        let tweet = create_test_tweet_with_mentions();
+        let mut resolver = NostrLinkResolver::new(None);
+
+        // Don't add users to resolver - they should remain as @mentions
+        let (processed_text, mentioned_pubkeys) =
+            process_mentions_in_text(&tweet.text, tweet.entities.as_ref(), &mut resolver)?;
+
+        // Check that mentions remain as @mentions
+        assert!(processed_text.contains("@alice"));
+        assert!(processed_text.contains("@bob"));
+        assert!(!processed_text.contains("nostr:"));
+
+        // Check that we have no mentioned pubkeys
+        assert_eq!(mentioned_pubkeys.len(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_tweet_with_mentions() -> Result<()> {
+        let tweet = create_test_tweet_with_mentions();
+        let mut resolver = NostrLinkResolver::new(None);
+
+        // Add known users
+        resolver.add_known_user("alice", "111111")?;
+        resolver.add_known_user("bob", "222222")?;
+
+        let (content, mentioned_pubkeys) =
+            format_tweet_as_nostr_content_with_mentions(&tweet, &[], &mut resolver)?;
+
+        // Check content structure
+        assert!(content.contains("🐦 @testuser:"));
+        assert!(content.contains("nostr:npub")); // Should have converted mentions
+        assert!(content.contains("[example.com/article](https://example.com/article)")); // URL expansion
+        assert!(content.contains("https://twitter.com/i/status/123456789")); // Original tweet URL
+
+        // Check mentioned pubkeys
+        assert_eq!(mentioned_pubkeys.len(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_format_reply_with_mentions() -> Result<()> {
+        let mut main_tweet = create_test_tweet_with_mentions();
+
+        // Create a reply reference
+        let reply_user = User {
+            id: "333333".to_string(),
+            username: "replyuser".to_string(),
+            name: Some("Reply User".to_string()),
+            ..Default::default()
+        };
+
+        let reply_tweet = Tweet {
+            id: "987654321".to_string(),
+            text: "Original tweet text".to_string(),
+            author: reply_user,
+            referenced_tweets: None,
+            attachments: None,
+            created_at: "2023-01-01T00:00:00Z".to_string(),
+            entities: None,
+            includes: None,
+            author_id: Some("333333".to_string()),
+            note_tweet: None,
+        };
+
+        main_tweet.referenced_tweets = Some(vec![ReferencedTweet {
+            type_field: "replied_to".to_string(),
+            id: "987654321".to_string(),
+            data: Some(Box::new(reply_tweet)),
+        }]);
+
+        let mut resolver = NostrLinkResolver::new(None);
+
+        // Add known users including the replied-to user
+        resolver.add_known_user("alice", "111111")?;
+        resolver.add_known_user("replyuser", "333333")?;
+
+        let (content, mentioned_pubkeys) =
+            format_tweet_as_nostr_content_with_mentions(&main_tweet, &[], &mut resolver)?;
+
+        // Check that reply header contains nostr link
+        assert!(content.contains("↩️ Reply to nostr:npub"));
+
+        // Check that we have mentioned pubkeys from both the main tweet and the reply
+        assert!(mentioned_pubkeys.len() >= 2); // alice + replyuser at minimum
+
+        Ok(())
     }
 
     #[test]

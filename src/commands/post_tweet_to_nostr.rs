@@ -14,17 +14,23 @@ use crate::nostr;
 use crate::storage;
 use crate::twitter;
 
-/// Creates tags for a Nostr event including original and Blossom media URLs
+/// Creates tags for a Nostr event including original and Blossom media URLs and mentions
 fn create_nostr_event_tags(
     tweet_id: &str,
     orig_urls: &[String],
     blossom_urls: &[String],
+    mentioned_pubkeys: &[nostr_sdk::PublicKey],
 ) -> Result<Vec<Tag>> {
     let mut tags = Vec::new();
 
     // reference original tweet
     let twitter_url = crate::nostr::build_twitter_status_url(tweet_id);
     tags.push(Tag::parse(vec!["r", twitter_url.as_str()])?);
+
+    // Add p-tags for mentioned users
+    for pubkey in mentioned_pubkeys {
+        tags.push(Tag::parse(vec!["p", &pubkey.to_hex()])?);
+    }
 
     // media tagging: if no blossom uploads, tag original URLs as media
     if blossom_urls.is_empty() {
@@ -279,8 +285,17 @@ pub async fn execute(
         blossom_urls.clone()
     };
 
-    // Format tweet content for Nostr
-    let content = nostr::format_tweet_as_nostr_content(&tweet, &media_urls);
+    // Get cache directory for resolving mentions
+    let cache_dir = std::env::var("NOSTRWEET_CACHE_DIR")
+        .or_else(|_| std::env::var("NOSTRWEET_OUTPUT_DIR"))
+        .ok();
+
+    // Create a resolver for Twitter username to Nostr pubkey mapping
+    let mut resolver = crate::nostr_linking::NostrLinkResolver::new(cache_dir);
+
+    // Format tweet content for Nostr with mention resolution
+    let (content, mentioned_pubkeys) =
+        nostr::format_tweet_as_nostr_content_with_mentions(&tweet, &media_urls, &mut resolver)?;
 
     // Create Nostr client and connect to relays
     let client = nostr::initialize_nostr_client(&keys, relays).await?;
@@ -329,7 +344,12 @@ pub async fn execute(
         let timestamp = Timestamp::from(tweet_created_at);
 
         // Create tags for the event
-        let tags = create_nostr_event_tags(&tweet_id, &tweet_media_urls, &blossom_urls)?;
+        let tags = create_nostr_event_tags(
+            &tweet_id,
+            &tweet_media_urls,
+            &blossom_urls,
+            &mentioned_pubkeys,
+        )?;
 
         // Create a fresh builder with all the necessary components
         let mut final_builder =
