@@ -5,5 +5,6 @@ pub mod keys;
 pub mod media;
 pub mod nostr;
 pub mod nostr_linking;
+pub mod profile_collector;
 pub mod storage;
 pub mod twitter;

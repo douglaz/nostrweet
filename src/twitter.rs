@@ -1081,6 +1081,73 @@ impl TwitterClient {
         Ok(user.data)
     }
 
+    /// Download profiles for multiple usernames, returning successfully downloaded profiles
+    /// Skips profiles that already exist in cache or fail to download
+    pub async fn download_user_profiles(
+        &self,
+        usernames: &[String],
+        output_dir: &std::path::Path,
+    ) -> Result<Vec<User>> {
+        use crate::profile_collector::filter_uncached_usernames;
+        use crate::storage::save_user_profile;
+        use std::collections::HashSet;
+
+        if usernames.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Convert to HashSet for filtering
+        let username_set: HashSet<String> = usernames.iter().cloned().collect();
+
+        // Filter out already cached profiles
+        let uncached_usernames = filter_uncached_usernames(username_set, output_dir).await?;
+
+        if uncached_usernames.is_empty() {
+            debug!("All {} profiles already cached", usernames.len());
+            return Ok(Vec::new());
+        }
+
+        info!(
+            "Downloading {} new profiles (out of {} referenced users)",
+            uncached_usernames.len(),
+            usernames.len()
+        );
+
+        let mut downloaded_profiles = Vec::new();
+        let mut failed_count = 0;
+
+        for username in &uncached_usernames {
+            debug!("Downloading profile for @{username}");
+
+            match self.get_user_by_username(username).await {
+                Ok(user) => {
+                    // Save the profile
+                    if let Err(e) = save_user_profile(&user, output_dir) {
+                        debug!("Failed to save profile for @{username}: {e}");
+                    } else {
+                        debug!("Successfully saved profile for @{username}");
+                        downloaded_profiles.push(user);
+                    }
+                }
+                Err(e) => {
+                    debug!("Failed to download profile for @{username}: {e}");
+                    failed_count += 1;
+                }
+            }
+        }
+
+        if failed_count > 0 {
+            debug!("{failed_count} profiles failed to download");
+        }
+
+        info!(
+            "Successfully downloaded and saved {} new profiles",
+            downloaded_profiles.len()
+        );
+
+        Ok(downloaded_profiles)
+    }
+
     /// Get a user's ID from their username
     async fn get_user_id(&self, username: &str) -> Result<String> {
         let url = format!("{TWITTER_API_BASE}/users/by/username/{username}");
