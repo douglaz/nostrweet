@@ -17,7 +17,7 @@ use crate::storage;
 use crate::twitter;
 
 /// Creates tags for a Nostr event including original and Blossom media URLs and mentions
-fn create_nostr_event_tags(
+pub fn create_nostr_event_tags(
     tweet_id: &str,
     orig_urls: &[String],
     blossom_urls: &[String],

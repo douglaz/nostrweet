@@ -731,6 +731,23 @@ impl TwitterClient {
         username: &str,
         max_results: Option<u32>,
     ) -> Result<Vec<Tweet>> {
+        self.get_user_timeline_with_since_id(username, max_results, None)
+            .await
+    }
+
+    /// Get a user's timeline from Twitter with optional since_id for efficient pagination
+    /// Returns tweets newer than the specified since_id
+    ///
+    /// # Arguments
+    /// * `username` - Twitter username (without the @ symbol)
+    /// * `max_results` - Maximum number of tweets to fetch (default: 10)
+    /// * `since_id` - Only return tweets with IDs greater than this value
+    pub async fn get_user_timeline_with_since_id(
+        &self,
+        username: &str,
+        max_results: Option<u32>,
+        since_id: Option<String>,
+    ) -> Result<Vec<Tweet>> {
         // First get the user ID from the username
         let user_id = self.get_user_id(username).await?;
 
@@ -779,7 +796,7 @@ impl TwitterClient {
 
         // Fetch remaining tweets from the API
         let timeline_response = self
-            .fetch_paginated_timeline(&user_id, requested_count, page_size)
+            .fetch_paginated_timeline(&user_id, requested_count, page_size, since_id.as_deref())
             .await?;
 
         let mut tweets = timeline_response.data.unwrap_or_default();
@@ -953,6 +970,7 @@ impl TwitterClient {
         user_id: &str,
         requested_count: u32,
         page_size: u32,
+        since_id: Option<&str>,
     ) -> Result<TimelineResponse> {
         let mut all_tweets = Vec::new();
         let mut next_token: Option<String> = None;
@@ -972,8 +990,12 @@ impl TwitterClient {
                 std::cmp::max(min_api_request, std::cmp::min(page_size, remaining_count));
 
             // Build the URL for user timeline request
-            let url =
-                self.build_user_timeline_url(user_id, current_page_size, next_token.as_deref());
+            let url = self.build_user_timeline_url(
+                user_id,
+                current_page_size,
+                next_token.as_deref(),
+                since_id,
+            );
 
             let response = self.api_request(user_id, &url).await?;
 
@@ -1029,6 +1051,7 @@ impl TwitterClient {
         user_id: &str,
         max_results: u32,
         pagination_token: Option<&str>,
+        since_id: Option<&str>,
     ) -> String {
         let base = format!("{TWITTER_API_BASE}/users/{user_id}/tweets?max_results={max_results}");
 
@@ -1039,7 +1062,10 @@ impl TwitterClient {
         let token_param =
             pagination_token.map_or(String::new(), |token| format!("&pagination_token={token}"));
 
-        format!("{base}{params}{token_param}")
+        // Add since_id if provided (for efficient pagination)
+        let since_param = since_id.map_or(String::new(), |id| format!("&since_id={id}"));
+
+        format!("{base}{params}{token_param}{since_param}")
     }
 
     /// Get a user's profile from their username
