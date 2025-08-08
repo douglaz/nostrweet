@@ -13,6 +13,7 @@ mod keys;
 mod media;
 mod nostr;
 mod nostr_linking;
+mod nostr_profile;
 mod profile_collector;
 mod storage;
 mod twitter;
@@ -114,6 +115,10 @@ enum Commands {
         /// Force overwrite of existing Nostr event
         #[arg(short, long)]
         force: bool,
+
+        /// Skip posting profiles for referenced users
+        #[arg(long, default_value = "false")]
+        skip_profiles: bool,
     },
 
     /// Post all cached tweets for a user to Nostr relays
@@ -143,6 +148,10 @@ enum Commands {
         /// Force overwrite of existing Nostr events
         #[arg(short, long)]
         force: bool,
+
+        /// Skip posting profiles for referenced users
+        #[arg(long, default_value = "false")]
+        skip_profiles: bool,
     },
 
     /// Post a single tweet to Nostr relays
@@ -172,6 +181,10 @@ enum Commands {
         /// Force overwrite of existing Nostr event
         #[arg(short, long)]
         force: bool,
+
+        /// Skip posting profiles for referenced users
+        #[arg(long, default_value = "false")]
+        skip_profiles: bool,
     },
 
     /// Post a user's latest cached profile to Nostr
@@ -283,6 +296,7 @@ async fn main() -> Result<()> {
             blossom_servers,
             private_key,
             force,
+            skip_profiles,
         } => {
             commands::post_tweet_to_nostr::execute(
                 &tweet_url_or_id,
@@ -291,6 +305,7 @@ async fn main() -> Result<()> {
                 private_key.as_deref(),
                 &output_dir,
                 force,
+                skip_profiles,
             )
             .await?
         }
@@ -300,6 +315,7 @@ async fn main() -> Result<()> {
             blossom_servers,
             private_key,
             force,
+            skip_profiles,
         } => {
             commands::post_user_to_nostr::execute(
                 &username,
@@ -308,6 +324,7 @@ async fn main() -> Result<()> {
                 private_key.as_deref(),
                 &output_dir,
                 force,
+                skip_profiles,
             )
             .await?
         }
@@ -317,6 +334,7 @@ async fn main() -> Result<()> {
             blossom_servers,
             private_key,
             force,
+            skip_profiles,
         } => {
             commands::post_tweet::execute(
                 &tweet_url_or_id,
@@ -325,6 +343,7 @@ async fn main() -> Result<()> {
                 private_key.as_deref(),
                 &output_dir,
                 force,
+                skip_profiles,
             )
             .await?
         }

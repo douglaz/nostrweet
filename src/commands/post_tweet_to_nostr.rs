@@ -11,6 +11,8 @@ use crate::datetime_utils::parse_rfc3339;
 use crate::keys;
 use crate::media;
 use crate::nostr;
+use crate::nostr_profile;
+use crate::profile_collector;
 use crate::storage;
 use crate::twitter;
 
@@ -58,6 +60,7 @@ pub async fn execute(
     private_key: Option<&str>,
     output_dir: &Path,
     force: bool,
+    skip_profiles: bool,
 ) -> Result<()> {
     // Parse tweet ID from URL or ID string
     let tweet_id = twitter::parse_tweet_id(tweet_url_or_id)
@@ -455,6 +458,48 @@ pub async fn execute(
     );
 
     info!("Successfully posted tweet {tweet_id} to Nostr with event ID: {event_id}");
+
+    // Post profiles for all referenced users (unless skipped)
+    if !skip_profiles {
+        // Collect all referenced usernames from the tweet
+        let usernames = profile_collector::collect_usernames_from_tweet(&tweet);
+
+        if !usernames.is_empty() {
+            debug!(
+                "Found {} referenced users to potentially post profiles for",
+                usernames.len()
+            );
+
+            // Filter profiles that need to be posted
+            let profiles_to_post = nostr_profile::filter_profiles_to_post(
+                usernames,
+                &client,
+                output_dir,
+                private_key,
+                force,
+            )
+            .await?;
+
+            if !profiles_to_post.is_empty() {
+                // Post the profiles
+                let posted_count = nostr_profile::post_referenced_profiles(
+                    &profiles_to_post,
+                    &client,
+                    output_dir,
+                    private_key,
+                )
+                .await?;
+
+                if posted_count > 0 {
+                    info!("Posted {posted_count} referenced user profiles to Nostr");
+                }
+            } else {
+                debug!("All referenced user profiles already posted or not available");
+            }
+        }
+    } else {
+        debug!("Skipping profile posting (--skip-profiles flag set)");
+    }
 
     Ok(())
 }
