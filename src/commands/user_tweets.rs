@@ -4,6 +4,7 @@ use std::path::Path;
 use tracing::{debug, info};
 
 use crate::media;
+use crate::profile_collector;
 use crate::storage;
 use crate::twitter;
 
@@ -19,6 +20,7 @@ pub async fn execute(
     output_dir: &Path,
     max_results: Option<u32>,
     days: Option<u32>,
+    skip_profiles: bool,
 ) -> Result<()> {
     // Clean username (remove @ if present)
     let username = username.trim_start_matches('@');
@@ -50,6 +52,7 @@ pub async fn execute(
     let mut skipped_count = 0;
     let mut filtered_count = 0;
     let mut media_files_count = 0;
+    let mut processed_tweets = Vec::new();
 
     if let Some(d) = days {
         info!("Filtering tweets from the last {d} days");
@@ -142,6 +145,9 @@ pub async fn execute(
             debug!("Saved tweet data to {path}", path = saved_path.display());
             processed_count += 1;
         }
+
+        // Store the processed tweet for profile collection
+        processed_tweets.push(tweet_to_save);
     }
 
     // Summary
@@ -171,6 +177,35 @@ pub async fn execute(
         "All tweets and media for @{username} successfully processed in {path}",
         path = output_dir.display()
     );
+
+    // Download profiles for all referenced users across all tweets (unless skipped)
+    if !skip_profiles {
+        let all_usernames = profile_collector::collect_usernames_from_tweets(&processed_tweets);
+        if !all_usernames.is_empty() {
+            debug!(
+                "Found {} unique referenced users across all tweets",
+                all_usernames.len()
+            );
+
+            let username_vec: Vec<String> = all_usernames.into_iter().collect();
+            match client
+                .download_user_profiles(&username_vec, output_dir)
+                .await
+            {
+                Ok(profiles) => {
+                    if !profiles.is_empty() {
+                        info!("Downloaded {} new user profiles", profiles.len());
+                    }
+                }
+                Err(e) => {
+                    debug!("Failed to download some user profiles: {e}");
+                    // Continue even if profile downloads fail
+                }
+            }
+        }
+    } else {
+        debug!("Skipping profile downloads (--skip-profiles flag set)");
+    }
 
     Ok(())
 }

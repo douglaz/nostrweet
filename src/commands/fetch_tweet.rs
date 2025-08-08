@@ -3,11 +3,12 @@ use std::path::Path;
 use tracing::{debug, info};
 
 use crate::media;
+use crate::profile_collector;
 use crate::storage;
 use crate::twitter;
 
 /// Fetch a single tweet and its media
-pub async fn execute(tweet_url_or_id: &str, output_dir: &Path) -> Result<()> {
+pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bool) -> Result<()> {
     // Extract tweet ID from URL or use as is
     let tweet_id = twitter::parse_tweet_id(tweet_url_or_id).context("Failed to parse tweet ID")?;
 
@@ -100,6 +101,35 @@ pub async fn execute(tweet_url_or_id: &str, output_dir: &Path) -> Result<()> {
             "Tweet processed, but all {expected_media_count} media item(s) failed to download, in {path}",
             path = output_dir.display()
         );
+    }
+
+    // Download profiles for all referenced users (unless skipped)
+    if !skip_profiles {
+        let usernames = profile_collector::collect_usernames_from_tweet(&tweet);
+        if !usernames.is_empty() {
+            debug!("Found {} referenced users in tweet", usernames.len());
+
+            let username_vec: Vec<String> = usernames.into_iter().collect();
+            let client = twitter::TwitterClient::new(output_dir)
+                .context("Failed to initialize Twitter client for profile downloads")?;
+
+            match client
+                .download_user_profiles(&username_vec, output_dir)
+                .await
+            {
+                Ok(profiles) => {
+                    if !profiles.is_empty() {
+                        info!("Downloaded {} new user profiles", profiles.len());
+                    }
+                }
+                Err(e) => {
+                    debug!("Failed to download some user profiles: {e}");
+                    // Continue even if profile downloads fail
+                }
+            }
+        }
+    } else {
+        debug!("Skipping profile downloads (--skip-profiles flag set)");
     }
 
     Ok(())

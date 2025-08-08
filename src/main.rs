@@ -13,6 +13,7 @@ mod keys;
 mod media;
 mod nostr;
 mod nostr_linking;
+mod profile_collector;
 mod storage;
 mod twitter;
 
@@ -51,6 +52,10 @@ enum Commands {
         /// URL or ID of the tweet to download
         #[arg(required = true)]
         tweet_url_or_id: String,
+
+        /// Skip downloading profiles for referenced users
+        #[arg(long, default_value = "false")]
+        skip_profiles: bool,
     },
 
     /// Fetch recent tweets from a user's timeline
@@ -66,6 +71,10 @@ enum Commands {
         /// Only fetch tweets from the last N days
         #[arg(long)]
         days: Option<u32>,
+
+        /// Skip downloading profiles for referenced users
+        #[arg(long, default_value = "false")]
+        skip_profiles: bool,
     },
 
     /// List all downloaded tweets in the cache
@@ -251,14 +260,19 @@ async fn main() -> Result<()> {
         Commands::FetchProfile { username } => {
             commands::fetch_profile::execute(&username, &output_dir).await?
         }
-        Commands::FetchTweet { tweet_url_or_id } => {
-            commands::fetch_tweet::execute(&tweet_url_or_id, &output_dir).await?
-        }
+        Commands::FetchTweet {
+            tweet_url_or_id,
+            skip_profiles,
+        } => commands::fetch_tweet::execute(&tweet_url_or_id, &output_dir, skip_profiles).await?,
         Commands::UserTweets {
             username,
             count,
             days,
-        } => commands::user_tweets::execute(&username, &output_dir, Some(count), days).await?,
+            skip_profiles,
+        } => {
+            commands::user_tweets::execute(&username, &output_dir, Some(count), days, skip_profiles)
+                .await?
+        }
         Commands::ListTweets => commands::list_tweets::execute(&output_dir).await?,
         Commands::ClearCache { force } => {
             commands::clear_cache::execute(&output_dir, force).await?
