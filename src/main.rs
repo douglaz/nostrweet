@@ -227,6 +227,33 @@ enum Commands {
 
     /// Show a tweet's JSON and its Nostr event representation
     ShowTweet(commands::show_tweet::ShowTweetCommand),
+
+    /// Run in daemon mode to continuously monitor and post tweets
+    Daemon {
+        /// Twitter usernames to monitor
+        #[arg(short, long = "user", required = true, action = clap::ArgAction::Append)]
+        users: Vec<String>,
+
+        /// Nostr relay addresses to post to
+        #[arg(short, long = "relay", required = true, action = clap::ArgAction::Append)]
+        relays: Vec<String>,
+
+        /// Blossom server addresses for media uploads
+        #[arg(short = 'b', long = "blossom-server", action = clap::ArgAction::Append)]
+        blossom_servers: Vec<String>,
+
+        /// Seconds between polling cycles
+        #[arg(short, long, default_value = "300")]
+        poll_interval: u64,
+
+        /// Maximum concurrent users to process
+        #[arg(short = 'c', long, default_value = "3")]
+        max_concurrent: usize,
+
+        /// Nostr private key (hex format, without leading 0x)
+        #[arg(long, env = "NOSTRWEET_PRIVATE_KEY")]
+        private_key: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -365,6 +392,25 @@ async fn main() -> Result<()> {
             private_key,
         } => commands::update_relay_list::execute(&relays, private_key.as_deref()).await?,
         Commands::ShowTweet(cmd) => cmd.execute(&output_dir).await?,
+        Commands::Daemon {
+            users,
+            relays,
+            blossom_servers,
+            poll_interval,
+            max_concurrent,
+            private_key,
+        } => {
+            commands::daemon::execute(
+                users,
+                relays,
+                blossom_servers,
+                poll_interval,
+                &output_dir,
+                private_key,
+                Some(max_concurrent),
+            )
+            .await?
+        }
     }
 
     Ok(())

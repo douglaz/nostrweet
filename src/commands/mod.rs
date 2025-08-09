@@ -1,4 +1,5 @@
 pub mod clear_cache;
+pub mod daemon;
 pub mod fetch_profile;
 pub mod fetch_tweet;
 pub mod list_tweets;

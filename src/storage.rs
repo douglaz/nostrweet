@@ -127,6 +127,50 @@ pub fn load_user_from_file(path: &Path) -> Result<User> {
     Ok(user)
 }
 
+/// Find the latest (highest) tweet ID for a specific user in the cache
+pub fn find_latest_tweet_id_for_user(username: &str, cache_dir: &Path) -> Result<Option<String>> {
+    let cache_dir_str = cache_dir
+        .to_str()
+        .context("Cache directory path contains invalid UTF-8")?;
+
+    // Pattern to match tweet files for this user
+    // Format: YYYYMMDD_HHMMSS_username_tweetid.json
+    let glob_pattern = format!("{cache_dir_str}/*_{username}_*.json");
+
+    let mut latest_tweet_id: Option<String> = None;
+
+    for path in glob::glob(&glob_pattern)?.flatten() {
+        if let Some(filename) = path.file_stem() {
+            let filename_str = filename.to_string_lossy();
+
+            // Skip profile files (they end with _profile)
+            if filename_str.ends_with("_profile") {
+                continue;
+            }
+
+            // Extract tweet ID (last part after the last underscore)
+            if let Some(tweet_id) = filename_str.rsplit('_').next() {
+                // Twitter IDs are snowflake IDs that increase over time
+                // So we can compare them as strings to find the latest
+                if latest_tweet_id
+                    .as_ref()
+                    .is_none_or(|latest| tweet_id > latest.as_str())
+                {
+                    latest_tweet_id = Some(tweet_id.to_string());
+                }
+            }
+        }
+    }
+
+    if let Some(ref id) = latest_tweet_id {
+        debug!("Found latest tweet ID for @{username}: {id}");
+    } else {
+        debug!("No cached tweets found for @{username}");
+    }
+
+    Ok(latest_tweet_id)
+}
+
 pub fn find_latest_user_profile(username: &str, cache_dir: &Path) -> Result<Option<PathBuf>> {
     let cache_dir_str = cache_dir
         .to_str()
@@ -375,6 +419,47 @@ mod tests {
         // No files exist
         let latest = find_latest_user_profile(username, temp_dir.path()).unwrap();
         assert!(latest.is_none());
+    }
+
+    #[test]
+    fn test_find_latest_tweet_id_for_user() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let username = "testuser";
+
+        // Initially no tweets
+        let result = find_latest_tweet_id_for_user(username, temp_dir.path())?;
+        assert!(result.is_none());
+
+        // Create some tweet files with different IDs
+        let file1 = temp_dir
+            .path()
+            .join(format!("20230101_120000_{username}_1000.json"));
+        let file2 = temp_dir
+            .path()
+            .join(format!("20230102_120000_{username}_2000.json"));
+        let file3 = temp_dir
+            .path()
+            .join(format!("20230103_120000_{username}_1500.json"));
+
+        fs::write(&file1, "{}")?;
+        fs::write(&file2, "{}")?;
+        fs::write(&file3, "{}")?;
+
+        // Should find the highest tweet ID (2000)
+        let result = find_latest_tweet_id_for_user(username, temp_dir.path())?;
+        assert_eq!(result, Some("2000".to_string()));
+
+        // Add a profile file (should be ignored)
+        let profile = temp_dir
+            .path()
+            .join(format!("20230104_120000_{username}_profile.json"));
+        fs::write(&profile, "{}")?;
+
+        // Should still return 2000
+        let result = find_latest_tweet_id_for_user(username, temp_dir.path())?;
+        assert_eq!(result, Some("2000".to_string()));
+
+        Ok(())
     }
 
     #[test]
