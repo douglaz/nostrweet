@@ -427,6 +427,19 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
                         .is_ok()
                     {
                         posted_to_nostr_count += 1;
+
+                        // Also post referenced profiles for cached tweets
+                        let referenced_usernames =
+                            profile_collector::collect_usernames_from_tweet(&cached_tweet);
+                        if !referenced_usernames.is_empty() {
+                            let _ = nostr_profile::post_referenced_profiles(
+                                &referenced_usernames,
+                                &state.nostr_client,
+                                &state.config.output_dir,
+                                state.config.private_key.as_deref(),
+                            )
+                            .await;
+                        }
                     }
                 }
             }
