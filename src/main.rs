@@ -108,10 +108,6 @@ enum Commands {
         #[arg(short, long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
         blossom_servers: Vec<String>,
 
-        /// Nostr private key (hex format, without leading 0x)
-        #[arg(short, long, env = "NOSTRWEET_PRIVATE_KEY")]
-        private_key: Option<String>,
-
         /// Force overwrite of existing Nostr event
         #[arg(short, long)]
         force: bool,
@@ -140,10 +136,6 @@ enum Commands {
         /// Blossom server addresses for media uploads (comma-separated)
         #[arg(short, long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
         blossom_servers: Vec<String>,
-
-        /// Nostr private key (hex format, without leading 0x)
-        #[arg(short, long, env = "NOSTRWEET_PRIVATE_KEY")]
-        private_key: Option<String>,
 
         /// Force overwrite of existing Nostr events
         #[arg(short, long)]
@@ -174,10 +166,6 @@ enum Commands {
         #[arg(short, long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
         blossom_servers: Vec<String>,
 
-        /// Nostr private key (hex format, without leading 0x)
-        #[arg(short, long, env = "NOSTRWEET_PRIVATE_KEY")]
-        private_key: Option<String>,
-
         /// Force overwrite of existing Nostr event
         #[arg(short, long)]
         force: bool,
@@ -202,10 +190,6 @@ enum Commands {
             env = "NOSTRWEET_RELAYS"
         )]
         relays: Vec<String>,
-
-        /// Nostr private key (hex format, without leading 0x)
-        #[arg(short, long, env = "NOSTRWEET_PRIVATE_KEY")]
-        private_key: Option<String>,
     },
 
     /// Update the relay list on Nostr
@@ -219,10 +203,6 @@ enum Commands {
             env = "NOSTRWEET_RELAYS"
         )]
         relays: Vec<String>,
-
-        /// Nostr private key (hex format, without leading 0x)
-        #[arg(short, long, env = "NOSTRWEET_PRIVATE_KEY")]
-        private_key: Option<String>,
     },
 
     /// Show a tweet's JSON and its Nostr event representation
@@ -249,10 +229,6 @@ enum Commands {
         /// Maximum concurrent users to process
         #[arg(short = 'c', long, default_value = "3")]
         max_concurrent: usize,
-
-        /// Nostr private key (hex format, without leading 0x)
-        #[arg(long, env = "NOSTRWEET_PRIVATE_KEY")]
-        private_key: Option<String>,
     },
 }
 
@@ -321,7 +297,6 @@ async fn main() -> Result<()> {
             tweet_url_or_id,
             relays,
             blossom_servers,
-            private_key,
             force,
             skip_profiles,
         } => {
@@ -329,7 +304,6 @@ async fn main() -> Result<()> {
                 &tweet_url_or_id,
                 &relays,
                 &blossom_servers,
-                private_key.as_deref(),
                 &output_dir,
                 force,
                 skip_profiles,
@@ -340,7 +314,6 @@ async fn main() -> Result<()> {
             username,
             relays,
             blossom_servers,
-            private_key,
             force,
             skip_profiles,
         } => {
@@ -348,7 +321,6 @@ async fn main() -> Result<()> {
                 &username,
                 &relays,
                 &blossom_servers,
-                private_key.as_deref(),
                 &output_dir,
                 force,
                 skip_profiles,
@@ -359,7 +331,6 @@ async fn main() -> Result<()> {
             tweet_url_or_id,
             relays,
             blossom_servers,
-            private_key,
             force,
             skip_profiles,
         } => {
@@ -367,30 +338,18 @@ async fn main() -> Result<()> {
                 &tweet_url_or_id,
                 &relays,
                 &blossom_servers,
-                private_key.as_deref(),
                 &output_dir,
                 force,
                 skip_profiles,
             )
             .await?
         }
-        Commands::PostProfileToNostr {
-            username,
-            relays,
-            private_key,
-        } => {
-            commands::post_profile_to_nostr::execute(
-                &username,
-                &relays,
-                private_key.as_deref(),
-                &output_dir,
-            )
-            .await?
+        Commands::PostProfileToNostr { username, relays } => {
+            commands::post_profile_to_nostr::execute(&username, &relays, &output_dir).await?
         }
-        Commands::UpdateRelayList {
-            relays,
-            private_key,
-        } => commands::update_relay_list::execute(&relays, private_key.as_deref()).await?,
+        Commands::UpdateRelayList { relays } => {
+            commands::update_relay_list::execute(&relays).await?
+        }
         Commands::ShowTweet(cmd) => cmd.execute(&output_dir).await?,
         Commands::Daemon {
             users,
@@ -398,7 +357,6 @@ async fn main() -> Result<()> {
             blossom_servers,
             poll_interval,
             max_concurrent,
-            private_key,
         } => {
             commands::daemon::execute(
                 users,
@@ -406,7 +364,6 @@ async fn main() -> Result<()> {
                 blossom_servers,
                 poll_interval,
                 &output_dir,
-                private_key,
                 Some(max_concurrent),
             )
             .await?

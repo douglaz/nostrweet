@@ -11,7 +11,6 @@ async fn post_single_profile(
     username: &str,
     client: &nostr_sdk::Client,
     output_dir: &Path,
-    private_key: Option<&str>,
 ) -> Result<EventId> {
     debug!("Attempting to post profile for @{username} to Nostr");
 
@@ -29,7 +28,7 @@ async fn post_single_profile(
         .with_context(|| format!("Failed to load profile for @{username}"))?;
 
     // Get Nostr keys for this user
-    let user_keys = keys::get_keys_for_tweet(&user.id, private_key)?;
+    let user_keys = keys::get_keys_for_tweet(&user.id)?;
 
     // Create metadata
     let mut metadata = Metadata::new();
@@ -86,7 +85,6 @@ pub async fn post_referenced_profiles(
     usernames: &HashSet<String>,
     client: &nostr_sdk::Client,
     output_dir: &Path,
-    private_key: Option<&str>,
 ) -> Result<usize> {
     if usernames.is_empty() {
         return Ok(0);
@@ -101,7 +99,7 @@ pub async fn post_referenced_profiles(
     let mut failed_count = 0;
 
     for username in usernames {
-        match post_single_profile(username, client, output_dir, private_key).await {
+        match post_single_profile(username, client, output_dir).await {
             Ok(event_id) => {
                 debug!("Posted profile for @{username} with event ID: {event_id:?}");
                 posted_count += 1;
@@ -131,7 +129,6 @@ pub async fn filter_profiles_to_post(
     usernames: HashSet<String>,
     client: &nostr_sdk::Client,
     output_dir: &Path,
-    private_key: Option<&str>,
     force: bool,
 ) -> Result<HashSet<String>> {
     if force {
@@ -153,7 +150,7 @@ pub async fn filter_profiles_to_post(
             .ok_or_else(|| anyhow::anyhow!("Profile path disappeared for {username}"))?;
 
         let user = storage::load_user_from_file(&profile_path)?;
-        let user_keys = keys::get_keys_for_tweet(&user.id, private_key)?;
+        let user_keys = keys::get_keys_for_tweet(&user.id)?;
         let pubkey = user_keys.public_key();
 
         // Check if we've already posted a profile for this user

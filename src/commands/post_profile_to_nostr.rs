@@ -6,12 +6,7 @@ use tracing::{debug, info};
 
 use crate::{keys, nostr, storage};
 
-pub async fn execute(
-    username: &str,
-    relays: &[String],
-    private_key: Option<&str>,
-    output_dir: &Path,
-) -> Result<()> {
+pub async fn execute(username: &str, relays: &[String], output_dir: &Path) -> Result<()> {
     info!(
         "Attempting to post profile for user '{}' to Nostr.",
         username
@@ -38,7 +33,7 @@ pub async fn execute(
         storage::load_user_from_file(&profile_path).context("Failed to load user profile")?;
 
     // Get Nostr keys
-    let keys = keys::get_keys_for_tweet(&user.id, private_key)?;
+    let keys = keys::get_keys_for_tweet(&user.id)?;
 
     // Initialize Nostr client
     let client = nostr::initialize_nostr_client(&keys, relays).await?;

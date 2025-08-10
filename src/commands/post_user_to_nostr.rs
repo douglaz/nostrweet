@@ -71,7 +71,6 @@ pub async fn execute(
     username: &str,
     relays: &[String],
     blossom_servers: &[String],
-    private_key: Option<&str>,
     output_dir: &Path,
     force: bool,
     skip_profiles: bool,
@@ -143,7 +142,6 @@ pub async fn execute(
             &tweet_id,
             relays,
             blossom_servers,
-            private_key,
             output_dir,
             force,
             true, // Always skip profiles here, we'll post them all at once at the end
@@ -204,7 +202,7 @@ pub async fn execute(
         // Only proceed if we have a user ID
         if let Some(uid) = user_id {
             // Initialize Nostr client with the user's keys
-            let keys = crate::keys::get_keys_for_tweet(&uid, private_key)?;
+            let keys = crate::keys::get_keys_for_tweet(&uid)?;
             let client = nostr::initialize_nostr_client(&keys, relays).await?;
 
             // Filter profiles that need to be posted
@@ -212,20 +210,15 @@ pub async fn execute(
                 all_referenced_users,
                 &client,
                 output_dir,
-                private_key,
                 force,
             )
             .await?;
 
             if !profiles_to_post.is_empty() {
                 // Post the profiles
-                let posted_count = nostr_profile::post_referenced_profiles(
-                    &profiles_to_post,
-                    &client,
-                    output_dir,
-                    private_key,
-                )
-                .await?;
+                let posted_count =
+                    nostr_profile::post_referenced_profiles(&profiles_to_post, &client, output_dir)
+                        .await?;
 
                 if posted_count > 0 {
                     info!("Posted {posted_count} referenced user profiles to Nostr");

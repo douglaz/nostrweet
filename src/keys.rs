@@ -1,22 +1,9 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use bip39::{Language, Mnemonic};
 use nostr_sdk::Keys;
 use sha2::{Digest, Sha256};
 use std::env;
 use tracing::debug;
-
-/// Loads keys from a private key string or the environment.
-pub fn load_keys(private_key: Option<&str>) -> Result<Keys> {
-    let key_str = match private_key {
-        Some(k) => Some(k.to_string()),
-        None => env::var("NOSTR_PRIVATE_KEY").ok(),
-    };
-
-    match key_str {
-        Some(k) => Keys::parse(&k).context("Failed to parse private key"),
-        None => bail!("No private key provided. Use the --private-key flag or set NOSTR_PRIVATE_KEY environment variable."),
-    }
-}
 
 /// Derives a deterministic Nostr private key for a Twitter user
 /// using NIP-06 compliant BIP39/BIP32 derivation
@@ -75,23 +62,10 @@ pub fn derive_key_for_twitter_user(twitter_user_id: &str) -> Result<Keys> {
     Ok(keys)
 }
 
-/// Creates a Keys instance either from a provided private key,
-/// or derives one for the Twitter user if no key is provided
-pub fn get_keys_for_tweet(twitter_user_id: &str, private_key: Option<&str>) -> Result<Keys> {
-    match private_key {
-        Some(hex_key) => {
-            // Use the explicitly provided private key
-            debug!("Using provided private key");
-            let keys =
-                Keys::parse(hex_key).context("Failed to create keys from provided private key")?;
-            Ok(keys)
-        }
-        None => {
-            // Derive a deterministic key based on the Twitter user ID using NIP-06
-            debug!("Deriving NIP-06 compliant key for Twitter user {twitter_user_id}");
-            derive_key_for_twitter_user(twitter_user_id)
-        }
-    }
+/// Creates a Keys instance by deriving from the Twitter user ID using NIP-06
+pub fn get_keys_for_tweet(twitter_user_id: &str) -> Result<Keys> {
+    debug!("Deriving NIP-06 compliant key for Twitter user {twitter_user_id}");
+    derive_key_for_twitter_user(twitter_user_id)
 }
 
 #[cfg(test)]
@@ -119,14 +93,19 @@ mod tests {
     }
 
     #[test]
-    fn test_get_keys_with_explicit_key() -> Result<()> {
-        // Test with explicit private key
-        let private_key = "7f7ff03d123792d6ac594bfa67bf6d0c0ab55b6b1fdb6249303fe861f1ccba9a";
-        let keys = get_keys_for_tweet("any_user", Some(private_key))?;
+    fn test_get_keys_for_tweet() -> Result<()> {
+        // Set test mnemonic
+        env::set_var(
+            "NOSTRWEET_MNEMONIC",
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        );
 
-        // Verify the public key matches expected value for this private key
-        let expected_pubkey = "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917";
-        assert_eq!(keys.public_key().to_string(), expected_pubkey);
+        // Test that get_keys_for_tweet derives correctly
+        let keys = get_keys_for_tweet("123456")?;
+
+        // Should be same as derive_key_for_twitter_user
+        let expected_keys = derive_key_for_twitter_user("123456")?;
+        assert_eq!(keys.public_key(), expected_keys.public_key());
 
         Ok(())
     }

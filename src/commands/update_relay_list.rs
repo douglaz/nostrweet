@@ -1,23 +1,11 @@
-use anyhow::Result;
-use tracing::info;
-
-use crate::{keys, nostr};
+use anyhow::{bail, Result};
 
 /// Executes the relay list update command.
-pub async fn execute(relays: &[String], private_key: Option<&str>) -> Result<()> {
-    // Load keys from the configured private key or generate new ones.
-    let keys = keys::load_keys(private_key)?;
-    let public_key = keys.public_key();
-    info!("Using public key: {public_key}");
+pub async fn execute(_relays: &[String]) -> Result<()> {
+    // This command doesn't make sense without a specific key
+    // since relay list is per-pubkey. We should either:
+    // 1. Remove this command entirely, or
+    // 2. Use a master key derived from mnemonic
 
-    // Initialize the Nostr client and connect to the relays.
-    let client = nostr::initialize_nostr_client(&keys, relays).await?;
-
-    // Update the relay list on the Nostr network.
-    nostr::update_relay_list(&client, &keys, relays).await?;
-
-    // Disconnect from relays
-    client.disconnect().await;
-
-    Ok(())
+    bail!("update-relay-list command is not supported with mnemonic-based key derivation. Each Twitter user has their own derived key and relay list.");
 }

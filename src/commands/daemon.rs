@@ -21,7 +21,6 @@ pub struct DaemonConfig {
     pub blossom_servers: Vec<String>,
     pub poll_interval: u64,
     pub output_dir: std::path::PathBuf,
-    pub private_key: Option<String>,
     pub max_concurrent_users: usize,
 }
 
@@ -136,7 +135,6 @@ pub async fn execute(
     blossom_servers: Vec<String>,
     poll_interval: u64,
     output_dir: &Path,
-    private_key: Option<String>,
     max_concurrent_users: Option<usize>,
 ) -> Result<()> {
     info!(
@@ -151,7 +149,6 @@ pub async fn execute(
         blossom_servers,
         poll_interval,
         output_dir: output_dir.to_path_buf(),
-        private_key,
         max_concurrent_users: max_concurrent_users.unwrap_or(3),
     });
 
@@ -209,7 +206,8 @@ async fn init_daemon(config: Arc<DaemonConfig>) -> Result<DaemonState> {
 
     // Connect to Nostr relays
     info!("Connecting to {} Nostr relays", config.relays.len());
-    let keys = crate::keys::load_keys(config.private_key.as_deref())?;
+    // Use ephemeral keys for relay connection (just for subscribing/querying)
+    let keys = nostr_sdk::Keys::generate();
     let nostr_client = Arc::new(
         nostr::initialize_nostr_client(&keys, &config.relays)
             .await
@@ -414,10 +412,7 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
                 let cached_tweet = storage::load_tweet_from_file(&tweet_path)?;
 
                 // Get keys for this tweet's author
-                let keys = crate::keys::get_keys_for_tweet(
-                    &cached_tweet.author.id,
-                    state.config.private_key.as_deref(),
-                )?;
+                let keys = crate::keys::get_keys_for_tweet(&cached_tweet.author.id)?;
 
                 // Check if already posted to Nostr by querying the relay
                 if !is_tweet_posted_to_nostr(tweet_id, &state.nostr_client, &keys).await? {
@@ -436,7 +431,6 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
                                 &referenced_usernames,
                                 &state.nostr_client,
                                 &state.config.output_dir,
-                                state.config.private_key.as_deref(),
                             )
                             .await;
                         }
@@ -479,10 +473,7 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
         }
 
         // Check if already posted to Nostr before attempting to post
-        let keys = crate::keys::get_keys_for_tweet(
-            &enriched_tweet.author.id,
-            state.config.private_key.as_deref(),
-        )?;
+        let keys = crate::keys::get_keys_for_tweet(&enriched_tweet.author.id)?;
 
         if !is_tweet_posted_to_nostr(tweet_id, &state.nostr_client, &keys).await? {
             // Post to Nostr
@@ -498,7 +489,6 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
                         &referenced_usernames,
                         &state.nostr_client,
                         &state.config.output_dir,
-                        state.config.private_key.as_deref(),
                     )
                     .await;
                 }
@@ -653,8 +643,7 @@ async fn post_tweet_to_nostr_with_state(
     let tweet_id = &tweet.id;
 
     // Get keys for the tweet
-    let keys =
-        crate::keys::get_keys_for_tweet(&tweet.author.id, state.config.private_key.as_deref())?;
+    let keys = crate::keys::get_keys_for_tweet(&tweet.author.id)?;
 
     // Extract media URLs
     let tweet_media_urls = media::extract_media_urls_from_tweet(tweet);
