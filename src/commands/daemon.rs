@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use tokio::signal;
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio::time;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::nostr;
 use crate::nostr_profile;
@@ -255,7 +255,7 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
         let users_to_poll = get_users_ready_for_polling(&state).await;
 
         if users_to_poll.is_empty() {
-            debug!("No users ready for polling, sleeping for 10 seconds");
+            trace!("No users ready for polling, sleeping for 10 seconds");
             time::sleep(Duration::from_secs(10)).await;
             continue;
         }
@@ -407,13 +407,21 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
         // Check if tweet is already cached
         if is_tweet_cached(tweet_id, &state.config.output_dir) {
             // Even if cached, check if it needs to be posted to Nostr
-            if !is_tweet_posted_to_nostr(tweet_id, &state.config.output_dir).await? {
-                // Load and post the cached tweet
-                if let Some(tweet_path) =
-                    storage::find_existing_tweet_json(tweet_id, &state.config.output_dir)
-                {
-                    let cached_tweet = storage::load_tweet_from_file(&tweet_path)?;
+            // Get keys for checking (we need to load the cached tweet to get the author ID)
+            if let Some(tweet_path) =
+                storage::find_existing_tweet_json(tweet_id, &state.config.output_dir)
+            {
+                let cached_tweet = storage::load_tweet_from_file(&tweet_path)?;
 
+                // Get keys for this tweet's author
+                let keys = crate::keys::get_keys_for_tweet(
+                    &cached_tweet.author.id,
+                    state.config.private_key.as_deref(),
+                )?;
+
+                // Check if already posted to Nostr by querying the relay
+                if !is_tweet_posted_to_nostr(tweet_id, &state.nostr_client, &keys).await? {
+                    // Post the cached tweet to Nostr
                     if post_tweet_to_nostr_with_state(&cached_tweet, state)
                         .await
                         .is_ok()
@@ -457,23 +465,33 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
                 .await;
         }
 
-        // Post to Nostr
-        if post_tweet_to_nostr_with_state(&enriched_tweet, state)
-            .await
-            .is_ok()
-        {
-            posted_to_nostr_count += 1;
+        // Check if already posted to Nostr before attempting to post
+        let keys = crate::keys::get_keys_for_tweet(
+            &enriched_tweet.author.id,
+            state.config.private_key.as_deref(),
+        )?;
 
-            // Post referenced profiles to Nostr
-            if !referenced_usernames.is_empty() {
-                let _ = nostr_profile::post_referenced_profiles(
-                    &referenced_usernames,
-                    &state.nostr_client,
-                    &state.config.output_dir,
-                    state.config.private_key.as_deref(),
-                )
-                .await;
+        if !is_tweet_posted_to_nostr(tweet_id, &state.nostr_client, &keys).await? {
+            // Post to Nostr
+            if post_tweet_to_nostr_with_state(&enriched_tweet, state)
+                .await
+                .is_ok()
+            {
+                posted_to_nostr_count += 1;
+
+                // Post referenced profiles to Nostr
+                if !referenced_usernames.is_empty() {
+                    let _ = nostr_profile::post_referenced_profiles(
+                        &referenced_usernames,
+                        &state.nostr_client,
+                        &state.config.output_dir,
+                        state.config.private_key.as_deref(),
+                    )
+                    .await;
+                }
             }
+        } else {
+            debug!("Tweet {tweet_id} already posted to Nostr, skipping");
         }
     }
 
@@ -532,29 +550,28 @@ pub fn is_tweet_cached(tweet_id: &str, output_dir: &Path) -> bool {
     storage::find_existing_tweet_json(tweet_id, output_dir).is_some()
 }
 
-/// Check if a tweet has been posted to Nostr
-pub async fn is_tweet_posted_to_nostr(tweet_id: &str, output_dir: &Path) -> Result<bool> {
-    // Check if we have a Nostr event file for this tweet
-    let nostr_events_dir = output_dir.join("nostr_events");
-    if !nostr_events_dir.exists() {
-        return Ok(false);
-    }
-
-    // Look for event files that might correspond to this tweet
-    // We need to check the content of event files to match the tweet ID
-    // For now, use a simple heuristic based on filename pattern
-    let pattern = format!("{}/event_*.json", nostr_events_dir.display());
-
-    for path in glob::glob(&pattern)?.flatten() {
-        // Read the event file and check if it contains our tweet ID
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if content.contains(tweet_id) {
-                return Ok(true);
-            }
+/// Check if a tweet has been posted to Nostr by querying the relay
+pub async fn is_tweet_posted_to_nostr(
+    tweet_id: &str,
+    nostr_client: &nostr_sdk::Client,
+    keys: &nostr_sdk::Keys,
+) -> Result<bool> {
+    // Use the existing find_existing_event function to check the relay
+    match crate::nostr::find_existing_event(nostr_client, tweet_id, keys).await {
+        Ok(Some(_event)) => {
+            debug!("Tweet {tweet_id} already exists on Nostr relay");
+            Ok(true)
+        }
+        Ok(None) => {
+            debug!("Tweet {tweet_id} not found on Nostr relay");
+            Ok(false)
+        }
+        Err(e) => {
+            // Log the error but don't fail - assume not posted to be safe
+            warn!("Failed to check if tweet {tweet_id} exists on relay: {e}");
+            Ok(false)
         }
     }
-
-    Ok(false)
 }
 
 /// Fetch timeline with exponential backoff retry and smart resume using since_id

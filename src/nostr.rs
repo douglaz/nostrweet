@@ -5,8 +5,8 @@ use base64::Engine;
 use nostr_sdk::nips::nip65::RelayMetadata;
 use nostr_sdk::ToBech32;
 use nostr_sdk::{
-    Client, Event, EventBuilder, Filter, Keys, Kind, PublicKey, RelayUrl, SubscriptionId, Tag,
-    Timestamp, Url,
+    Alphabet, Client, Event, EventBuilder, Filter, Keys, Kind, PublicKey, RelayUrl,
+    SingleLetterTag, SubscriptionId, Tag, Timestamp, Url,
 };
 use reqwest::{header::RETRY_AFTER, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -526,7 +526,12 @@ pub async fn find_existing_event(
     debug!("Looking for events with Twitter URL reference: {twitter_url}");
 
     // Build a filter to find events authored by our public key that contain the Twitter URL as a 'r' tag
-    let filter = Filter::new().author(pubkey).kind(Kind::TextNote).limit(10);
+    // Use custom_tag to filter by the 'r' tag with the specific Twitter URL
+    let filter = Filter::new()
+        .author(pubkey)
+        .kind(Kind::TextNote)
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::R), twitter_url.clone())
+        .limit(10);
 
     debug!("Subscribing to events with filter: {filter:?}");
 
@@ -556,28 +561,9 @@ pub async fn find_existing_event(
                     count = events.len()
                 );
 
-                // Search for events that reference the tweet
-                for event in events.iter() {
-                    // Clone the event once to avoid ownership issues
-                    let event_clone = event.clone();
-
-                    // Check if any tag references this tweet
-                    let has_tweet_reference = event_clone.tags.iter().any(|tag| {
-                        // Convert tag to vector for easier access
-                        let tag_vec = tag.clone().to_vec();
-
-                        // Check if it's an 'r' tag referencing our tweet
-                        tag_vec.first().is_some_and(|tag_name| tag_name == "r")
-                            && tag_vec
-                                .get(1)
-                                .is_some_and(|url| url.contains(&format!("status/{tweet_id}")))
-                    });
-
-                    if has_tweet_reference {
-                        return Some(event_clone);
-                    }
-                }
-                None
+                // Since we're filtering by the r tag in the query, any event returned should be a match
+                // Return the first event if any exist
+                events.into_iter().next()
             }
             Err(e) => {
                 debug!("Error fetching events: {e}");
