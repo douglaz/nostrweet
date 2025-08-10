@@ -57,7 +57,6 @@ pub async fn execute(
     tweet_url_or_id: &str,
     relays: &[String],
     blossom_servers: &[String],
-    private_key: Option<&str>,
     output_dir: &Path,
     force: bool,
     skip_profiles: bool,
@@ -180,7 +179,7 @@ pub async fn execute(
     debug!("Using Twitter user ID: {twitter_user_id}");
 
     // Initialize Nostr keys - either from provided private key or derive from Twitter user ID
-    let keys = keys::get_keys_for_tweet(&twitter_user_id, private_key)?;
+    let keys = keys::get_keys_for_tweet(&twitter_user_id)?;
 
     debug!(
         "Using Nostr public key: {pubkey}",
@@ -471,24 +470,15 @@ pub async fn execute(
             );
 
             // Filter profiles that need to be posted
-            let profiles_to_post = nostr_profile::filter_profiles_to_post(
-                usernames,
-                &client,
-                output_dir,
-                private_key,
-                force,
-            )
-            .await?;
+            let profiles_to_post =
+                nostr_profile::filter_profiles_to_post(usernames, &client, output_dir, force)
+                    .await?;
 
             if !profiles_to_post.is_empty() {
                 // Post the profiles
-                let posted_count = nostr_profile::post_referenced_profiles(
-                    &profiles_to_post,
-                    &client,
-                    output_dir,
-                    private_key,
-                )
-                .await?;
+                let posted_count =
+                    nostr_profile::post_referenced_profiles(&profiles_to_post, &client, output_dir)
+                        .await?;
 
                 if posted_count > 0 {
                     info!("Posted {posted_count} referenced user profiles to Nostr");
