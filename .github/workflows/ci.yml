@@ -101,11 +101,44 @@ jobs:
           path: target/${{ matrix.target }}/release/nostrweet
           retention-days: 7
 
+  # Cross-platform testing for macOS and Windows
+  test-cross-platform:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    needs: check
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+      
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+      
+      - name: Build
+        run: nix develop -c cargo build --release
+      
+      - name: Run tests
+        run: nix develop -c cargo test
+      
+      - name: Test CLI (Unix)
+        if: matrix.os != 'windows-latest'
+        run: ./target/release/nostrweet --help
+      
+      - name: Test CLI (Windows)
+        if: matrix.os == 'windows-latest'
+        run: .\target\release\nostrweet.exe --help
+
   final-check:
     name: Final Check
     runs-on: ubuntu-latest
     # Only run after all other jobs pass
-    needs: [check, test, build]
+    needs: [check, test, build, test-cross-platform]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

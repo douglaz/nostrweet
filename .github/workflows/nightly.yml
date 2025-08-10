@@ -1,0 +1,220 @@
+name: Nightly Build
+
+on:
+  schedule:
+    # Run every day at 3 AM UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-changes:
+    name: Check for recent changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check for commits in last 24 hours
+        id: check
+        run: |
+          if [[ $(git log --since="24 hours ago" --oneline) ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "Recent changes found, proceeding with nightly build"
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "No recent changes, skipping nightly build"
+          fi
+
+  build:
+    name: Nightly Build (${{ matrix.target.name }})
+    needs: check-changes
+    if: needs.check-changes.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.target.os }}
+    
+    strategy:
+      matrix:
+        target:
+          - name: linux-x86_64-static
+            os: ubuntu-latest
+            rust-target: x86_64-unknown-linux-musl
+            artifact-name: nostrweet-nightly-linux-x86_64-static
+            binary-name: nostrweet
+            archive-ext: tar.gz
+            
+          - name: macos-x86_64
+            os: macos-latest
+            rust-target: x86_64-apple-darwin
+            artifact-name: nostrweet-nightly-macos-x86_64
+            binary-name: nostrweet
+            archive-ext: tar.gz
+            
+          - name: macos-aarch64
+            os: macos-latest
+            rust-target: aarch64-apple-darwin
+            artifact-name: nostrweet-nightly-macos-aarch64
+            binary-name: nostrweet
+            archive-ext: tar.gz
+            
+          - name: windows-x86_64
+            os: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            artifact-name: nostrweet-nightly-windows-x86_64
+            binary-name: nostrweet.exe
+            archive-ext: zip
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Nix (Linux)
+        if: matrix.target.os == 'ubuntu-latest'
+        uses: DeterminateSystems/nix-installer-action@v9
+      
+      - name: Setup Nix cache (Linux)
+        if: matrix.target.os == 'ubuntu-latest'
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+      
+      - name: Install Rust (non-Linux)
+        if: matrix.target.os != 'ubuntu-latest'
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target.rust-target }}
+      
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-${{ runner.os }}-
+      
+      - name: Build with nightly features (Linux)
+        if: matrix.target.os == 'ubuntu-latest'
+        run: |
+          nix develop -c cargo +nightly build --release --target ${{ matrix.target.rust-target }}
+      
+      - name: Build with nightly features (non-Linux)
+        if: matrix.target.os != 'ubuntu-latest'
+        run: |
+          cargo +nightly build --release --target ${{ matrix.target.rust-target }}
+      
+      - name: Prepare artifacts (Unix)
+        if: matrix.target.os != 'windows-latest'
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target.rust-target }}/release/${{ matrix.target.binary-name }} dist/
+          chmod +x dist/${{ matrix.target.binary-name }}
+          cd dist
+          tar czf ../${{ matrix.target.artifact-name }}.tar.gz *
+      
+      - name: Prepare artifacts (Windows)
+        if: matrix.target.os == 'windows-latest'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/${{ matrix.target.rust-target }}/release/${{ matrix.target.binary-name }} dist/
+          Compress-Archive -Path dist/* -DestinationPath ${{ matrix.target.artifact-name }}.zip
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target.artifact-name }}
+          path: ${{ matrix.target.artifact-name }}.${{ matrix.target.archive-ext }}
+          retention-days: 7
+
+  update-nightly-release:
+    name: Update Nightly Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Prepare release files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec mv {} release-files/ \;
+          ls -la release-files/
+      
+      - name: Get date and commit
+        id: info
+        run: |
+          echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      
+      - name: Create release notes
+        run: |
+          cat > release-notes.md << 'EOF'
+          ## Nostrweet Nightly Build
+          
+          **Build Date:** ${{ steps.info.outputs.date }}  
+          **Commit:** ${{ steps.info.outputs.sha_short }}  
+          **Rust Version:** Nightly
+          
+          ### ⚠️ Warning
+          
+          This is an automated nightly build using Rust nightly compiler. It may include:
+          - Experimental features
+          - Unstable optimizations
+          - Potential bugs
+          
+          **For production use, please use the stable releases instead.**
+          
+          ### Installation
+          
+          1. Download the appropriate binary for your platform
+          2. Extract the archive
+          3. Make executable (Unix): `chmod +x nostrweet`
+          4. Run: `./nostrweet --help`
+          
+          ### Configuration
+          
+          Set the following environment variables:
+          - `TWITTER_BEARER_TOKEN` - Required for Twitter API access
+          - `NOSTRWEET_OUTPUT_DIR` - Output directory for downloads (default: ./downloads)
+          - `NOSTRWEET_RELAYS` - Nostr relay addresses (comma-separated)
+          - `NOSTRWEET_BLOSSOM_SERVERS` - Blossom server addresses for media uploads
+          - `NOSTRWEET_PRIVATE_KEY` - Nostr private key (hex format)
+          
+          ### Available Binaries
+          
+          - `nostrweet-nightly-linux-x86_64-static.tar.gz` - Linux x86_64 (fully static binary)
+          - `nostrweet-nightly-macos-x86_64.tar.gz` - macOS Intel
+          - `nostrweet-nightly-macos-aarch64.tar.gz` - macOS Apple Silicon
+          - `nostrweet-nightly-windows-x86_64.zip` - Windows x86_64
+          
+          EOF
+      
+      - name: Delete existing nightly release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete nightly --yes 2>/dev/null || true
+          git push --delete origin nightly 2>/dev/null || true
+      
+      - name: Create nightly release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create nightly \
+            --title "Nightly Build (${{ steps.info.outputs.date }})" \
+            --notes-file release-notes.md \
+            --prerelease \
+            --target master \
+            release-files/*

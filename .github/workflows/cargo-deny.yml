@@ -1,0 +1,82 @@
+name: Cargo Deny
+
+on:
+  push:
+    branches: [master, develop]
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - 'deny.toml'
+  pull_request:
+    branches: [master, develop]
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - 'deny.toml'
+  schedule:
+    # Run every Monday at 10 AM UTC
+    - cron: '0 10 * * 1'
+  workflow_dispatch:
+
+jobs:
+  cargo-deny:
+    name: Check licenses and security advisories
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Install cargo-deny
+        run: |
+          nix develop -c cargo install --locked cargo-deny
+          nix develop -c cargo deny --version
+
+      - name: Check licenses
+        run: nix develop -c cargo deny check licenses
+        continue-on-error: true
+
+      - name: Check bans
+        run: nix develop -c cargo deny check bans
+        continue-on-error: true
+
+      - name: Check advisories
+        run: nix develop -c cargo deny check advisories
+
+      - name: Check sources
+        run: nix develop -c cargo deny check sources
+        continue-on-error: true
+
+      - name: Full check with all warnings
+        run: nix develop -c cargo deny check --show-stats 2>&1 | tee deny-report.txt
+        continue-on-error: true
+
+      - name: Upload deny report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-deny-report
+          path: deny-report.txt
+          retention-days: 30
+
+      - name: Create issue comment on failure
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('deny-report.txt', 'utf8');
+            const truncated = report.length > 60000 ? report.substring(0, 60000) + '\n\n... (truncated)' : report;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ⚠️ Cargo Deny Check Results\n\n<details>\n<summary>Click to expand full report</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n\n</details>\n\nPlease review the licenses and security advisories.`
+            });
