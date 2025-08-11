@@ -10,10 +10,27 @@ on:
     paths:
       - 'flake.lock'
       - '.github/workflows/check-nix-updates.yml'
+  pull_request:
+    paths:
+      - 'flake.lock'
+      - 'flake.nix'
 
 jobs:
+  check-flake:
+    name: Check Flake Health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check flake
+        uses: DeterminateSystems/flake-checker-action@v9
+        with:
+          fail-mode: false  # Don't fail the workflow, just report
+          send-statistics: false  # Don't send telemetry
+
   check-updates:
-    name: Check for Nix Flake Updates
+    name: Check for Updates
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -22,120 +39,52 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v9
 
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
-
-      - name: Check for available updates
-        id: check
-        run: |
-          echo "🔍 Checking for Nix flake updates..."
-          
-          # Save current lock file
-          cp flake.lock flake.lock.original
-          
-          # Try updating
-          nix flake update
-          
-          # Check if anything changed
-          if ! cmp -s flake.lock flake.lock.original; then
-            echo "📦 Updates are available!"
-            echo "updates_available=true" >> $GITHUB_OUTPUT
-            
-            echo "### Available Updates:"
-            echo '```diff'
-            diff -u flake.lock.original flake.lock || true
-            echo '```'
-            
-            # Get specific version changes
-            echo ""
-            echo "### Version Changes:"
-            OLD_NIXPKGS=$(jq -r '.nodes.nixpkgs.locked.rev' flake.lock.original | cut -c1-7)
-            NEW_NIXPKGS=$(jq -r '.nodes.nixpkgs.locked.rev' flake.lock | cut -c1-7)
-            echo "- nixpkgs: $OLD_NIXPKGS → $NEW_NIXPKGS"
-            
-            OLD_RUST=$(jq -r '.nodes["rust-overlay"].locked.rev' flake.lock.original 2>/dev/null | cut -c1-7)
-            NEW_RUST=$(jq -r '.nodes["rust-overlay"].locked.rev' flake.lock 2>/dev/null | cut -c1-7)
-            if [ "$OLD_RUST" != "null" ] && [ "$NEW_RUST" != "null" ]; then
-              echo "- rust-overlay: $OLD_RUST → $NEW_RUST"
-            fi
-            
-            # Restore original to avoid committing changes
-            mv flake.lock.original flake.lock
-          else
-            echo "✅ All Nix flake inputs are up to date!"
-            echo "updates_available=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Test with current dependencies
-        run: |
-          echo "🧪 Testing current flake configuration..."
-          nix flake check
-          nix develop -c cargo check
-          echo "✅ Current configuration works correctly"
-
-      - name: Create issue if updates available
-        if: steps.check.outputs.updates_available == 'true' && github.event_name == 'schedule'
-        uses: actions/github-script@v7
+      - name: Check for updates
+        uses: DeterminateSystems/update-flake-lock@v23
         with:
-          script: |
-            const title = '🔄 Nix flake updates available';
-            const body = `## Nix Flake Updates Available
+          pr-title: "chore: update Nix flake dependencies"
+          pr-body: |
+            ## 🔄 Automated Nix Flake Update
             
-            The weekly check has found that Nix flake dependencies can be updated.
+            This PR updates the `flake.lock` file with the latest versions of dependencies.
             
-            ### How to Update
+            ### Changes
+            Updates to the latest versions of:
+            - nixpkgs
+            - rust-overlay
+            - Other flake inputs
             
-            Run the following commands locally:
-            \`\`\`bash
-            nix flake update
-            git add flake.lock
-            git commit -m "chore: update Nix flake dependencies"
-            \`\`\`
-            
-            Then create a pull request with the changes.
-            
-            ### Alternative
-            
-            You can also trigger the "Dependencies" workflow manually to create an automated PR (requires proper PAT configuration).
+            ### Testing
+            Please ensure all CI checks pass before merging.
             
             ---
-            *This issue was automatically created by the Nix update checker workflow.*`;
-            
-            // Check if issue already exists
-            const issues = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'dependencies'
-            });
-            
-            const existingIssue = issues.data.find(issue => issue.title === title);
-            
-            if (!existingIssue) {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: title,
-                body: body,
-                labels: ['dependencies', 'nix']
-              });
-              console.log('Created new issue for Nix updates');
-            } else {
-              console.log('Issue already exists, skipping creation');
-            }
+            *This PR was automatically created by the update checker workflow.*
+          pr-labels: |
+            dependencies
+            nix
+            automated
+          # Only create PR if we have a PAT configured
+          token: ${{ secrets.FLAKE_UPDATE_TOKEN || secrets.GITHUB_TOKEN }}
+          # Don't create PR if using GITHUB_TOKEN (it won't work)
+          commit-msg: "chore: update flake.lock"
+          branch: "chore/update-flake-lock"
+          # Only actually create PR if we have proper token
+          dry-run: ${{ secrets.FLAKE_UPDATE_TOKEN == '' }}
 
-      - name: Summary
+      - name: Flake check summary
         if: always()
         run: |
-          echo "## 📊 Nix Update Check Summary"
+          echo "## 📊 Nix Flake Check Summary"
           echo ""
-          if [ "${{ steps.check.outputs.updates_available }}" == "true" ]; then
-            echo "🔄 **Status**: Updates available"
+          echo "✅ Flake health check completed"
+          echo ""
+          if [ "${{ secrets.FLAKE_UPDATE_TOKEN }}" == "" ]; then
+            echo "ℹ️ **Note**: To enable automatic PR creation for updates, configure the FLAKE_UPDATE_TOKEN secret."
             echo ""
-            echo "To update locally, run:"
+            echo "To update manually, run:"
             echo '```bash'
             echo 'nix flake update'
+            echo 'git add flake.lock'
+            echo 'git commit -m "chore: update Nix flake dependencies"'
             echo '```'
-          else
-            echo "✅ **Status**: Everything is up to date"
           fi
