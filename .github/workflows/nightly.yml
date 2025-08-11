@@ -82,7 +82,7 @@ jobs:
       
       - name: Install Rust (non-Linux)
         if: matrix.target.os != 'ubuntu-latest'
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target.rust-target }}
       
@@ -97,15 +97,15 @@ jobs:
           restore-keys: |
             cargo-registry-${{ runner.os }}-
       
-      - name: Build with nightly features (Linux)
+      - name: Build release binary (Linux)
         if: matrix.target.os == 'ubuntu-latest'
         run: |
-          nix develop -c cargo +nightly build --release --target ${{ matrix.target.rust-target }}
+          nix develop -c cargo build --release --target ${{ matrix.target.rust-target }}
       
-      - name: Build with nightly features (non-Linux)
+      - name: Build release binary (non-Linux)
         if: matrix.target.os != 'ubuntu-latest'
         run: |
-          cargo +nightly build --release --target ${{ matrix.target.rust-target }}
+          cargo build --release --target ${{ matrix.target.rust-target }}
       
       - name: Prepare artifacts (Unix)
         if: matrix.target.os != 'windows-latest'
@@ -165,13 +165,12 @@ jobs:
           
           **Build Date:** ${{ steps.info.outputs.date }}  
           **Commit:** ${{ steps.info.outputs.sha_short }}  
-          **Rust Version:** Nightly
           
-          ### ⚠️ Warning
+          ### ⚠️ Note
           
-          This is an automated nightly build using Rust nightly compiler. It may include:
-          - Experimental features
-          - Unstable optimizations
+          This is an automated daily build from the latest master branch. It may include:
+          - Recent changes not yet in stable releases
+          - Features still being tested
           - Potential bugs
           
           **For production use, please use the stable releases instead.**

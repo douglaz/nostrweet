@@ -41,18 +41,6 @@ allow = [
     "MPL-2.0",
     "Unlicense",
 ]
-# List of denied licenses
-deny = [
-    "GPL-2.0",
-    "GPL-3.0",
-    "AGPL-3.0",
-]
-# Copyleft licenses to allow
-copyleft = "warn"
-# Allow licenses that cargo-deny doesn't know about
-allow-osi-fsf-free = "both"
-# Default license to use if one cannot be determined
-default = "deny"
 
 # Exceptions for specific crates
 exceptions = [
@@ -71,8 +59,6 @@ license-files = [
 [bans]
 # Lint level for when multiple versions of the same crate are detected
 multiple-versions = "warn"
-# Lint level for when a crate marked as 'deny' is detected
-deny = []
 # Skip certain crates when checking for duplicates
 skip = [
     # Example:
