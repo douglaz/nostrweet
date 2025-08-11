@@ -20,8 +20,9 @@ db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 # A list of advisory IDs to ignore
 ignore = [
-    # Example:
-    # "RUSTSEC-2020-0001",
+    # instant is unmaintained but only used by backoff crate for tokio feature
+    # This is not a security vulnerability, just an unmaintained crate
+    "RUSTSEC-2024-0384",
 ]
 
 [licenses]
@@ -36,9 +37,7 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
-    "Unicode-DFS-2016",
     "CC0-1.0",
-    "MPL-2.0",
     "Unlicense",
 ]
 

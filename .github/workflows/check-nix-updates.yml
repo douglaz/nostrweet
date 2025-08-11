@@ -1,0 +1,90 @@
+name: Check Nix Updates
+
+on:
+  schedule:
+    # Run every Monday at 09:00 UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'flake.lock'
+      - '.github/workflows/check-nix-updates.yml'
+  pull_request:
+    paths:
+      - 'flake.lock'
+      - 'flake.nix'
+
+jobs:
+  check-flake:
+    name: Check Flake Health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check flake
+        uses: DeterminateSystems/flake-checker-action@v9
+        with:
+          fail-mode: false  # Don't fail the workflow, just report
+          send-statistics: false  # Don't send telemetry
+
+  check-updates:
+    name: Check for Updates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Check for updates
+        uses: DeterminateSystems/update-flake-lock@v23
+        with:
+          pr-title: "chore: update Nix flake dependencies"
+          pr-body: |
+            ## 🔄 Automated Nix Flake Update
+            
+            This PR updates the `flake.lock` file with the latest versions of dependencies.
+            
+            ### Changes
+            Updates to the latest versions of:
+            - nixpkgs
+            - rust-overlay
+            - Other flake inputs
+            
+            ### Testing
+            Please ensure all CI checks pass before merging.
+            
+            ---
+            *This PR was automatically created by the update checker workflow.*
+          pr-labels: |
+            dependencies
+            nix
+            automated
+          # Only create PR if we have a PAT configured
+          token: ${{ secrets.FLAKE_UPDATE_TOKEN || secrets.GITHUB_TOKEN }}
+          # Don't create PR if using GITHUB_TOKEN (it won't work)
+          commit-msg: "chore: update flake.lock"
+          branch: "chore/update-flake-lock"
+          # Only actually create PR if we have proper token
+          dry-run: ${{ secrets.FLAKE_UPDATE_TOKEN == '' }}
+
+      - name: Flake check summary
+        if: always()
+        run: |
+          echo "## 📊 Nix Flake Check Summary"
+          echo ""
+          echo "✅ Flake health check completed"
+          echo ""
+          if [ "${{ secrets.FLAKE_UPDATE_TOKEN }}" == "" ]; then
+            echo "ℹ️ **Note**: To enable automatic PR creation for updates, configure the FLAKE_UPDATE_TOKEN secret."
+            echo ""
+            echo "To update manually, run:"
+            echo '```bash'
+            echo 'nix flake update'
+            echo 'git add flake.lock'
+            echo 'git commit -m "chore: update Nix flake dependencies"'
+            echo '```'
+          fi
