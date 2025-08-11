@@ -1468,6 +1468,7 @@ pub async fn publish_nostr_event(client: &Client, event: &Event) -> Result<()> {
 }
 
 /// Update the user's relay list on Nostr (Kind 10002)
+#[allow(dead_code)]
 pub async fn update_relay_list(client: &Client, keys: &Keys, relays: &[String]) -> Result<()> {
     info!("Updating Nostr relay list");
 
