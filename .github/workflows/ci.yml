@@ -114,18 +114,41 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Install Nix
+      # macOS: Use Nix for consistent environment
+      - name: Install Nix (macOS only)
+        if: matrix.os == 'macos-latest'
         uses: DeterminateSystems/nix-installer-action@v9
       
-      - name: Setup Nix cache
+      - name: Setup Nix cache (macOS only)
+        if: matrix.os == 'macos-latest'
         uses: DeterminateSystems/magic-nix-cache-action@v2
       
-      - name: Build
+      # Windows: Use native Rust toolchain
+      - name: Install Rust (Windows only)
+        if: matrix.os == 'windows-latest'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      
+      # Build using appropriate toolchain
+      - name: Build (macOS)
+        if: matrix.os == 'macos-latest'
         run: nix develop -c cargo build --release
       
-      - name: Run tests
+      - name: Build (Windows)
+        if: matrix.os == 'windows-latest'
+        run: cargo build --release
+      
+      # Run tests using appropriate toolchain
+      - name: Run tests (macOS)
+        if: matrix.os == 'macos-latest'
         run: nix develop -c cargo test
       
+      - name: Run tests (Windows)
+        if: matrix.os == 'windows-latest'
+        run: cargo test
+      
+      # Test CLI binary
       - name: Test CLI (Unix)
         if: matrix.os != 'windows-latest'
         run: ./target/release/nostrweet --help
