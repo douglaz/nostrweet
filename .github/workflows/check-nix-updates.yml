@@ -56,23 +56,10 @@ jobs:
           if ! cmp -s flake.lock flake.lock.original; then
             echo "📦 Updates are available!"
             echo ""
-            echo "### Available Updates:"
-            echo ""
-            
-            # Show what inputs changed
-            echo "#### Changed inputs:"
-            OLD_NIXPKGS=$(jq -r '.nodes.nixpkgs.locked.rev' flake.lock.original 2>/dev/null | cut -c1-7)
-            NEW_NIXPKGS=$(jq -r '.nodes.nixpkgs.locked.rev' flake.lock 2>/dev/null | cut -c1-7)
-            if [ "$OLD_NIXPKGS" != "$NEW_NIXPKGS" ]; then
-              echo "- nixpkgs: \`$OLD_NIXPKGS\` → \`$NEW_NIXPKGS\`"
-            fi
-            
-            OLD_RUST=$(jq -r '.nodes["rust-overlay"].locked.rev' flake.lock.original 2>/dev/null | cut -c1-7)
-            NEW_RUST=$(jq -r '.nodes["rust-overlay"].locked.rev' flake.lock 2>/dev/null | cut -c1-7)
-            if [ "$OLD_RUST" != "$NEW_RUST" ] && [ "$OLD_RUST" != "null" ]; then
-              echo "- rust-overlay: \`$OLD_RUST\` → \`$NEW_RUST\`"
-            fi
-            
+            echo "To see what changed, run:"
+            echo '```bash'
+            echo 'git diff flake.lock'
+            echo '```'
             echo ""
             echo "### How to update:"
             echo '```bash'
@@ -81,10 +68,11 @@ jobs:
             echo 'git commit -m "chore: update Nix flake dependencies"'
             echo '```'
             
-            # Restore original
+            # Restore original to avoid committing changes
             mv flake.lock.original flake.lock
           else
             echo "✅ All Nix flake inputs are up to date!"
+            rm flake.lock.original
           fi
 
       - name: Test current flake
