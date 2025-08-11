@@ -14,6 +14,7 @@ on:
     paths:
       - 'flake.lock'
       - 'flake.nix'
+      - '.github/workflows/check-nix-updates.yml'
 
 jobs:
   check-flake:
@@ -39,52 +40,52 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v9
 
-      - name: Check for updates
-        uses: DeterminateSystems/update-flake-lock@v23
-        with:
-          pr-title: "chore: update Nix flake dependencies"
-          pr-body: |
-            ## 🔄 Automated Nix Flake Update
-            
-            This PR updates the `flake.lock` file with the latest versions of dependencies.
-            
-            ### Changes
-            Updates to the latest versions of:
-            - nixpkgs
-            - rust-overlay
-            - Other flake inputs
-            
-            ### Testing
-            Please ensure all CI checks pass before merging.
-            
-            ---
-            *This PR was automatically created by the update checker workflow.*
-          pr-labels: |
-            dependencies
-            nix
-            automated
-          # Only create PR if we have a PAT configured
-          token: ${{ secrets.FLAKE_UPDATE_TOKEN || secrets.GITHUB_TOKEN }}
-          # Don't create PR if using GITHUB_TOKEN (it won't work)
-          commit-msg: "chore: update flake.lock"
-          branch: "chore/update-flake-lock"
-          # Only actually create PR if we have proper token
-          dry-run: ${{ secrets.FLAKE_UPDATE_TOKEN == '' }}
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
 
-      - name: Flake check summary
-        if: always()
+      - name: Check for updates manually
         run: |
-          echo "## 📊 Nix Flake Check Summary"
-          echo ""
-          echo "✅ Flake health check completed"
-          echo ""
-          if [ "${{ secrets.FLAKE_UPDATE_TOKEN }}" == "" ]; then
-            echo "ℹ️ **Note**: To enable automatic PR creation for updates, configure the FLAKE_UPDATE_TOKEN secret."
+          echo "🔍 Checking for Nix flake updates..."
+          
+          # Configure git to use the GitHub token for authentication
+          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          
+          # Save current lock file
+          cp flake.lock flake.lock.original
+          
+          # Try updating
+          nix flake update --accept-flake-config || {
+            echo "⚠️ Could not check for updates (this may happen with private repos or rate limits)"
+            echo "To check manually, run: nix flake update"
+            mv flake.lock.original flake.lock
+            exit 0
+          }
+          
+          # Check if anything changed
+          if ! cmp -s flake.lock flake.lock.original; then
+            echo "📦 Updates are available!"
             echo ""
-            echo "To update manually, run:"
+            echo "To see what changed, run:"
+            echo '```bash'
+            echo 'git diff flake.lock'
+            echo '```'
+            echo ""
+            echo "### How to update:"
             echo '```bash'
             echo 'nix flake update'
             echo 'git add flake.lock'
             echo 'git commit -m "chore: update Nix flake dependencies"'
             echo '```'
+            
+            # Restore original to avoid committing changes
+            mv flake.lock.original flake.lock
+          else
+            echo "✅ All Nix flake inputs are up to date!"
+            rm flake.lock.original
           fi
+
+      - name: Test current flake
+        run: |
+          echo "🧪 Testing current flake configuration..."
+          nix flake check
+          echo "✅ Flake check passed"
