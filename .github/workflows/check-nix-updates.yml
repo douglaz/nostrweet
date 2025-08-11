@@ -46,11 +46,19 @@ jobs:
         run: |
           echo "🔍 Checking for Nix flake updates..."
           
+          # Configure git to use the GitHub token for authentication
+          git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+          
           # Save current lock file
           cp flake.lock flake.lock.original
           
           # Try updating
-          nix flake update
+          nix flake update --accept-flake-config || {
+            echo "⚠️ Could not check for updates (this may happen with private repos or rate limits)"
+            echo "To check manually, run: nix flake update"
+            mv flake.lock.original flake.lock
+            exit 0
+          }
           
           # Check if anything changed
           if ! cmp -s flake.lock flake.lock.original; then
