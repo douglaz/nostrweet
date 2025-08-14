@@ -209,6 +209,16 @@ This ensures Nostr events contain directly accessible media links.
 
 ## Development
 
+### Setup
+
+```bash
+# Enter development environment (includes automatic Git hook setup)
+nix develop
+
+# Or manually install hooks (for non-nix users)
+git config core.hooksPath .githooks
+```
+
 ### Building
 ```bash
 # Development build
@@ -234,6 +244,13 @@ cargo test test_name -- --nocapture
 ```
 
 ### Code Quality
+
+#### Automated Checks
+Git hooks are **automatically configured** when entering the nix development environment:
+- **pre-commit**: Runs `cargo fmt --check` to ensure code is formatted
+- **pre-push**: Runs both `cargo fmt --check` and `cargo clippy -- -D warnings`
+
+#### Manual Checks
 ```bash
 # Run all quality checks
 just final-check
@@ -242,6 +259,16 @@ just final-check
 cargo clippy --locked --offline --workspace --all-targets -- --deny warnings
 cargo fmt --all
 cargo test
+```
+
+#### Managing Hooks
+```bash
+# Bypass hooks temporarily (not recommended)
+git commit --no-verify
+git push --no-verify
+
+# Disable hooks completely
+git config --unset core.hooksPath
 ```
 
 ## Environment Variables
