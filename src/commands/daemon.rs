@@ -138,9 +138,8 @@ pub async fn execute(
     max_concurrent_users: Option<usize>,
 ) -> Result<()> {
     info!(
-        "Starting daemon v2 for {user_count} users with {interval} second base interval",
-        user_count = users.len(),
-        interval = poll_interval
+        "Starting daemon v2 for {user_count} users with {poll_interval} second base interval",
+        user_count = users.len()
     );
 
     let config = Arc::new(DaemonConfig {
