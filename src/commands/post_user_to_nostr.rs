@@ -303,10 +303,10 @@ pub async fn execute_with_options(
     {
         info!("Applied filters:");
         if let Some(since) = &options.since_date {
-            info!("  - Since date: {}", since);
+            info!("  - Since date: {since}", since = since);
         }
         if let Some(until) = &options.until_date {
-            info!("  - Until date: {}", until);
+            info!("  - Until date: {until}", until = until);
         }
         if let Some(keywords) = &options.filter_keywords {
             info!("  - Required keywords: {:?}", keywords);
@@ -315,15 +315,18 @@ pub async fn execute_with_options(
             info!("  - Excluded keywords: {:?}", keywords);
         }
         if let Some(min_eng) = options.min_engagement {
-            info!("  - Minimum engagement: {}", min_eng);
+            info!(
+                "  - Minimum engagement: {min_engagement}",
+                min_engagement = min_eng
+            );
         }
     }
 
     // Post profiles for all referenced users (unless skipped)
     if !options.skip_profiles && !all_referenced_users.is_empty() && !options.dry_run {
         info!(
-            "Found {} unique referenced users across all tweets",
-            all_referenced_users.len()
+            "Found {user_count} unique referenced users across all tweets",
+            user_count = all_referenced_users.len()
         );
 
         // We need to get the Nostr keys for the main user

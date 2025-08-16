@@ -138,9 +138,9 @@ pub async fn execute(
     max_concurrent_users: Option<usize>,
 ) -> Result<()> {
     info!(
-        "Starting daemon v2 for {} users with {} second base interval",
-        users.len(),
-        poll_interval
+        "Starting daemon v2 for {user_count} users with {interval} second base interval",
+        user_count = users.len(),
+        interval = poll_interval
     );
 
     let config = Arc::new(DaemonConfig {
@@ -216,7 +216,10 @@ async fn init_daemon(config: Arc<DaemonConfig>) -> Result<DaemonState> {
     );
 
     // Connect to Nostr relays
-    info!("Connecting to {} Nostr relays", config.relays.len());
+    info!(
+        "Connecting to {relay_count} Nostr relays",
+        relay_count = config.relays.len()
+    );
     // Use ephemeral keys for relay connection (just for subscribing/querying)
     let keys = nostr_sdk::Keys::generate();
     let nostr_client = Arc::new(
@@ -270,8 +273,8 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
         }
 
         info!(
-            "Starting concurrent polling for {} users",
-            users_to_poll.len()
+            "Starting concurrent polling for {user_count} users",
+            user_count = users_to_poll.len()
         );
 
         // Process users with concurrency control (limited by semaphore)
@@ -281,7 +284,10 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
         ));
 
         for username in &users_to_poll {
-            let _permit = semaphore.acquire().await.unwrap();
+            let _permit = semaphore
+                .acquire()
+                .await
+                .context("Failed to acquire semaphore permit")?;
 
             // Process user with enhanced error handling
             match process_user_v2(state.clone(), username.clone()).await {
@@ -305,16 +311,16 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
                         // Log different levels based on failure count
                         match user_state.consecutive_failures {
                             1..=2 => warn!(
-                                "User @{username} failed {} times, will retry with backoff",
-                                user_state.consecutive_failures
+                                "User @{username} failed {failures} times, will retry with backoff",
+                                failures = user_state.consecutive_failures
                             ),
                             3..=5 => error!(
-                                "User @{username} failed {} times, increasing backoff delay",
-                                user_state.consecutive_failures
+                                "User @{username} failed {failures} times, increasing backoff delay",
+                                failures = user_state.consecutive_failures
                             ),
                             _ => error!(
-                                "User @{username} failed {} times, may need manual intervention",
-                                user_state.consecutive_failures
+                                "User @{username} failed {failures} times, may need manual intervention",
+                                failures = user_state.consecutive_failures
                             ),
                         }
                     }
@@ -339,9 +345,9 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
         drop(stats_guard);
 
         info!(
-            "Polling cycle completed in {:.2}s - processed {} users",
-            poll_duration.as_secs_f64(),
-            users_to_poll.len()
+            "Polling cycle completed in {duration:.2}s - processed {user_count} users",
+            duration = poll_duration.as_secs_f64(),
+            user_count = users_to_poll.len()
         );
 
         // Log detailed status every 10 cycles (roughly every hour with 6min intervals)
@@ -361,21 +367,23 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
             info!("=== Daemon Status Report ===");
             info!("Uptime: {:.1} hours", uptime.as_secs_f64() / 3600.0);
             info!(
-                "Total polls: {}, Success rate: {:.1}%",
-                stats.total_polls,
-                if stats.total_polls > 0 {
+                "Total polls: {total_polls}, Success rate: {success_rate:.1}%",
+                total_polls = stats.total_polls,
+                success_rate = if stats.total_polls > 0 {
                     (stats.successful_polls as f64 / stats.total_polls as f64) * 100.0
                 } else {
                     0.0
                 }
             );
             info!(
-                "Tweets: {} downloaded, {} posted to Nostr",
-                stats.total_tweets_downloaded, stats.total_tweets_posted
+                "Tweets: {downloaded} downloaded, {posted} posted to Nostr",
+                downloaded = stats.total_tweets_downloaded,
+                posted = stats.total_tweets_posted
             );
             info!(
-                "Users: {} healthy, {} failing",
-                healthy_users, failing_users
+                "Users: {healthy} healthy, {failing} failing",
+                healthy = healthy_users,
+                failing = failing_users
             );
 
             // Log failing users for debugging
@@ -383,8 +391,9 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
                 for (username, state) in user_states.iter() {
                     if state.consecutive_failures > 0 {
                         warn!(
-                            "User @{} has {} consecutive failures",
-                            username, state.consecutive_failures
+                            "User @{username} has {failures} consecutive failures",
+                            username = username,
+                            failures = state.consecutive_failures
                         );
                     }
                 }
@@ -623,14 +632,14 @@ fn spawn_stats_reporter(stats: Arc<RwLock<DaemonStats>>) -> tokio::task::JoinHan
             let minutes = (uptime.as_secs() % 3600) / 60;
 
             info!(
-                "📊 Stats | Uptime: {}h{}m | Polls: {} (✓{} ✗{}) | Downloaded: {} | Posted: {}",
-                hours,
-                minutes,
-                stats.total_polls,
-                stats.successful_polls,
-                stats.failed_polls,
-                stats.total_tweets_downloaded,
-                stats.total_tweets_posted
+                "📊 Stats | Uptime: {hours}h{minutes}m | Polls: {polls} (✓{success} ✗{failed}) | Downloaded: {downloaded} | Posted: {posted}",
+                hours = hours,
+                minutes = minutes,
+                polls = stats.total_polls,
+                success = stats.successful_polls,
+                failed = stats.failed_polls,
+                downloaded = stats.total_tweets_downloaded,
+                posted = stats.total_tweets_posted
             );
         }
     })
@@ -642,14 +651,29 @@ async fn print_final_stats(stats: &Arc<RwLock<DaemonStats>>) {
     let uptime = stats.start_time.elapsed();
 
     info!("=== Final Daemon Statistics ===");
-    info!("Uptime: {:.2} hours", uptime.as_secs_f64() / 3600.0);
-    info!("Total polls: {}", stats.total_polls);
-    info!("Successful polls: {}", stats.successful_polls);
-    info!("Failed polls: {}", stats.failed_polls);
-    info!("Total tweets downloaded: {}", stats.total_tweets_downloaded);
     info!(
-        "Total tweets posted to Nostr: {}",
-        stats.total_tweets_posted
+        "Uptime: {uptime:.2} hours",
+        uptime = uptime.as_secs_f64() / 3600.0
+    );
+    info!(
+        "Total polls: {total_polls}",
+        total_polls = stats.total_polls
+    );
+    info!(
+        "Successful polls: {successful_polls}",
+        successful_polls = stats.successful_polls
+    );
+    info!(
+        "Failed polls: {failed_polls}",
+        failed_polls = stats.failed_polls
+    );
+    info!(
+        "Total tweets downloaded: {downloaded}",
+        downloaded = stats.total_tweets_downloaded
+    );
+    info!(
+        "Total tweets posted to Nostr: {posted}",
+        posted = stats.total_tweets_posted
     );
     info!("===============================");
 }
@@ -893,7 +917,7 @@ async fn save_daemon_state(state: &DaemonState) -> Result<()> {
         .await
         .context("Failed to write daemon state file")?;
 
-    debug!("Daemon state saved to {}", state_file.display());
+    debug!("Daemon state saved to {path}", path = state_file.display());
     Ok(())
 }
 
