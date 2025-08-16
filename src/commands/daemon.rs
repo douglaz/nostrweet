@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::signal;
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio::time;
@@ -174,7 +174,7 @@ pub async fn execute(
 
     // Run the main daemon loop with shutdown handling
     tokio::select! {
-        result = run_daemon_v2(state) => {
+        result = run_daemon_v2(state.clone()) => {
             if let Err(e) = result {
                 error!("Daemon error: {e}");
                 return Err(e);
@@ -182,10 +182,21 @@ pub async fn execute(
             Ok(())
         }
         _ = shutdown_rx => {
-            info!("Shutting down daemon gracefully");
+            info!("Received shutdown signal, gracefully shutting down daemon...");
+
+            // Cancel the stats reporter
             stats_handle.abort();
+
+            // Save final state
+            if let Err(e) = save_daemon_state(&state).await {
+                error!("Failed to save daemon state: {e}");
+            } else {
+                info!("Daemon state saved successfully");
+            }
+
+            // Print final statistics
             print_final_stats(&final_stats).await;
-            info!("All state has been persisted to disk");
+            info!("Daemon shutdown complete");
             Ok(())
         }
     }
@@ -269,20 +280,117 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
             state.config.max_concurrent_users,
         ));
 
-        for username in users_to_poll {
+        for username in &users_to_poll {
             let _permit = semaphore.acquire().await.unwrap();
 
-            // Process user inline
-            if let Err(e) = process_user_v2(state.clone(), username).await {
-                error!("Error processing user: {e}");
+            // Process user with enhanced error handling
+            match process_user_v2(state.clone(), username.clone()).await {
+                Ok(()) => {
+                    debug!("Successfully processed user: {username}");
+                    // Reset failure count on success
+                    let mut user_states = state.user_states.write().await;
+                    if let Some(user_state) = user_states.get_mut(username) {
+                        user_state.consecutive_failures = 0;
+                        user_state.last_success_time = Some(Instant::now());
+                    }
+                }
+                Err(e) => {
+                    error!("Error processing user @{username}: {e}");
+
+                    // Update failure count
+                    let mut user_states = state.user_states.write().await;
+                    if let Some(user_state) = user_states.get_mut(username) {
+                        user_state.consecutive_failures += 1;
+
+                        // Log different levels based on failure count
+                        match user_state.consecutive_failures {
+                            1..=2 => warn!(
+                                "User @{username} failed {} times, will retry with backoff",
+                                user_state.consecutive_failures
+                            ),
+                            3..=5 => error!(
+                                "User @{username} failed {} times, increasing backoff delay",
+                                user_state.consecutive_failures
+                            ),
+                            _ => error!(
+                                "User @{username} failed {} times, may need manual intervention",
+                                user_state.consecutive_failures
+                            ),
+                        }
+                    }
+
+                    // Check if it's a rate limit error and handle accordingly
+                    if e.to_string().contains("rate limit") || e.to_string().contains("429") {
+                        warn!("Rate limit detected for @{username}, will back off");
+                        // Rate limiter will handle the backoff automatically
+                    }
+                }
             }
         }
 
         let poll_duration = poll_start.elapsed();
+
+        // Update statistics
+        let mut stats_guard = state.stats.write().await;
+        stats_guard.total_polls += 1;
+        if !users_to_poll.is_empty() {
+            stats_guard.successful_polls += 1;
+        }
+        drop(stats_guard);
+
         info!(
-            "Polling cycle completed in {:.2}s",
-            poll_duration.as_secs_f64()
+            "Polling cycle completed in {:.2}s - processed {} users",
+            poll_duration.as_secs_f64(),
+            users_to_poll.len()
         );
+
+        // Log detailed status every 10 cycles (roughly every hour with 6min intervals)
+        let stats = state.stats.read().await;
+        if stats.total_polls % 10 == 0 {
+            let uptime = stats.start_time.elapsed();
+            let user_states = state.user_states.read().await;
+            let healthy_users = user_states
+                .values()
+                .filter(|u| u.consecutive_failures == 0)
+                .count();
+            let failing_users = user_states
+                .values()
+                .filter(|u| u.consecutive_failures > 0)
+                .count();
+
+            info!("=== Daemon Status Report ===");
+            info!("Uptime: {:.1} hours", uptime.as_secs_f64() / 3600.0);
+            info!(
+                "Total polls: {}, Success rate: {:.1}%",
+                stats.total_polls,
+                if stats.total_polls > 0 {
+                    (stats.successful_polls as f64 / stats.total_polls as f64) * 100.0
+                } else {
+                    0.0
+                }
+            );
+            info!(
+                "Tweets: {} downloaded, {} posted to Nostr",
+                stats.total_tweets_downloaded, stats.total_tweets_posted
+            );
+            info!(
+                "Users: {} healthy, {} failing",
+                healthy_users, failing_users
+            );
+
+            // Log failing users for debugging
+            if failing_users > 0 {
+                for (username, state) in user_states.iter() {
+                    if state.consecutive_failures > 0 {
+                        warn!(
+                            "User @{} has {} consecutive failures",
+                            username, state.consecutive_failures
+                        );
+                    }
+                }
+            }
+            info!("=============================");
+        }
 
         // Short sleep before next cycle
         time::sleep(Duration::from_secs(5)).await;
@@ -698,6 +806,95 @@ async fn post_tweet_to_nostr_with_state(
     storage::save_nostr_event(&event, &state.config.output_dir)?;
 
     Ok(event_id)
+}
+
+/// Save daemon state to disk for graceful shutdown/restart
+async fn save_daemon_state(state: &DaemonState) -> Result<()> {
+    use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
+
+    #[derive(Serialize, Deserialize)]
+    struct PersistentUserState {
+        username: String,
+        last_poll_time: Option<u64>,
+        last_success_time: Option<u64>,
+        consecutive_failures: u32,
+        total_tweets_downloaded: u64,
+        total_tweets_posted: u64,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct PersistentStats {
+        start_time_secs: u64,
+        total_polls: u64,
+        successful_polls: u64,
+        failed_polls: u64,
+        total_tweets_downloaded: u64,
+        total_tweets_posted: u64,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct PersistentDaemonState {
+        users: HashMap<String, PersistentUserState>,
+        stats: PersistentStats,
+    }
+
+    let user_states = state.user_states.read().await;
+    let stats = state.stats.read().await;
+
+    let mut persistent_users = HashMap::new();
+    for (username, user_state) in user_states.iter() {
+        let persistent = PersistentUserState {
+            username: username.clone(),
+            last_poll_time: user_state.last_poll_time.map(|t| {
+                SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+                    - t.elapsed().as_secs()
+            }),
+            last_success_time: user_state.last_success_time.map(|t| {
+                SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+                    - t.elapsed().as_secs()
+            }),
+            consecutive_failures: user_state.consecutive_failures,
+            total_tweets_downloaded: user_state.total_tweets_downloaded,
+            total_tweets_posted: user_state.total_tweets_posted,
+        };
+        persistent_users.insert(username.clone(), persistent);
+    }
+
+    let persistent_stats = PersistentStats {
+        start_time_secs: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            - stats.start_time.elapsed().as_secs(),
+        total_polls: stats.total_polls,
+        successful_polls: stats.successful_polls,
+        failed_polls: stats.failed_polls,
+        total_tweets_downloaded: stats.total_tweets_downloaded,
+        total_tweets_posted: stats.total_tweets_posted,
+    };
+
+    let persistent_state = PersistentDaemonState {
+        users: persistent_users,
+        stats: persistent_stats,
+    };
+
+    let state_file = state.config.output_dir.join("daemon_state.json");
+    let state_json = serde_json::to_string_pretty(&persistent_state)
+        .context("Failed to serialize daemon state")?;
+
+    tokio::fs::write(&state_file, state_json)
+        .await
+        .context("Failed to write daemon state file")?;
+
+    debug!("Daemon state saved to {}", state_file.display());
+    Ok(())
 }
 
 // Make DaemonState clonable for concurrent processing
