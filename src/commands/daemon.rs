@@ -134,7 +134,6 @@ pub async fn execute(
     blossom_servers: Vec<String>,
     poll_interval: u64,
     output_dir: &Path,
-    _max_concurrent_users: Option<usize>,
 ) -> Result<()> {
     info!(
         "Starting daemon v2 for {user_count} users with {poll_interval} second base interval",
