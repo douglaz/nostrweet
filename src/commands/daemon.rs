@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tokio::signal;
 use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio::time;
@@ -183,12 +183,7 @@ pub async fn execute(
             // Cancel the stats reporter
             stats_handle.abort();
 
-            // Save final state
-            if let Err(e) = save_daemon_state(&state).await {
-                error!("Failed to save daemon state: {e}");
-            } else {
-                info!("Daemon state saved successfully");
-            }
+            // No longer saving daemon state - all state inferred from disk cache
 
             // Print final statistics
             print_final_stats(&final_stats).await;
@@ -367,9 +362,7 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
                 total_tweets_downloaded = stats.total_tweets_downloaded,
                 total_tweets_posted = stats.total_tweets_posted
             );
-            info!(
-                "Users: {healthy_users} healthy, {failing_users} failing"
-            );
+            info!("Users: {healthy_users} healthy, {failing_users} failing");
 
             // Log failing users for debugging
             if failing_users > 0 {
@@ -638,11 +631,26 @@ async fn print_final_stats(stats: &Arc<RwLock<DaemonStats>>) {
         "Uptime: {uptime:.2} hours",
         uptime = uptime.as_secs_f64() / 3600.0
     );
-    info!("Total polls: {total_polls}", total_polls = stats.total_polls);
-    info!("Successful polls: {successful_polls}", successful_polls = stats.successful_polls);
-    info!("Failed polls: {failed_polls}", failed_polls = stats.failed_polls);
-    info!("Total tweets downloaded: {total_tweets_downloaded}", total_tweets_downloaded = stats.total_tweets_downloaded);
-    info!("Total tweets posted to Nostr: {total_tweets_posted}", total_tweets_posted = stats.total_tweets_posted);
+    info!(
+        "Total polls: {total_polls}",
+        total_polls = stats.total_polls
+    );
+    info!(
+        "Successful polls: {successful_polls}",
+        successful_polls = stats.successful_polls
+    );
+    info!(
+        "Failed polls: {failed_polls}",
+        failed_polls = stats.failed_polls
+    );
+    info!(
+        "Total tweets downloaded: {total_tweets_downloaded}",
+        total_tweets_downloaded = stats.total_tweets_downloaded
+    );
+    info!(
+        "Total tweets posted to Nostr: {total_tweets_posted}",
+        total_tweets_posted = stats.total_tweets_posted
+    );
     info!("===============================");
 }
 
@@ -798,95 +806,6 @@ async fn post_tweet_to_nostr_with_state(
     storage::save_nostr_event(&event, &state.config.output_dir)?;
 
     Ok(event_id)
-}
-
-/// Save daemon state to disk for graceful shutdown/restart
-async fn save_daemon_state(state: &DaemonState) -> Result<()> {
-    use serde::{Deserialize, Serialize};
-    use std::collections::HashMap;
-
-    #[derive(Serialize, Deserialize)]
-    struct PersistentUserState {
-        username: String,
-        last_poll_time: Option<u64>,
-        last_success_time: Option<u64>,
-        consecutive_failures: u32,
-        total_tweets_downloaded: u64,
-        total_tweets_posted: u64,
-    }
-
-    #[derive(Serialize, Deserialize)]
-    struct PersistentStats {
-        start_time_secs: u64,
-        total_polls: u64,
-        successful_polls: u64,
-        failed_polls: u64,
-        total_tweets_downloaded: u64,
-        total_tweets_posted: u64,
-    }
-
-    #[derive(Serialize, Deserialize)]
-    struct PersistentDaemonState {
-        users: HashMap<String, PersistentUserState>,
-        stats: PersistentStats,
-    }
-
-    let user_states = state.user_states.read().await;
-    let stats = state.stats.read().await;
-
-    let mut persistent_users = HashMap::new();
-    for (username, user_state) in user_states.iter() {
-        let persistent = PersistentUserState {
-            username: username.clone(),
-            last_poll_time: user_state.last_poll_time.map(|t| {
-                SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs()
-                    - t.elapsed().as_secs()
-            }),
-            last_success_time: user_state.last_success_time.map(|t| {
-                SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs()
-                    - t.elapsed().as_secs()
-            }),
-            consecutive_failures: user_state.consecutive_failures,
-            total_tweets_downloaded: user_state.total_tweets_downloaded,
-            total_tweets_posted: user_state.total_tweets_posted,
-        };
-        persistent_users.insert(username.clone(), persistent);
-    }
-
-    let persistent_stats = PersistentStats {
-        start_time_secs: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            - stats.start_time.elapsed().as_secs(),
-        total_polls: stats.total_polls,
-        successful_polls: stats.successful_polls,
-        failed_polls: stats.failed_polls,
-        total_tweets_downloaded: stats.total_tweets_downloaded,
-        total_tweets_posted: stats.total_tweets_posted,
-    };
-
-    let persistent_state = PersistentDaemonState {
-        users: persistent_users,
-        stats: persistent_stats,
-    };
-
-    let state_file = state.config.output_dir.join("daemon_state.json");
-    let state_json = serde_json::to_string_pretty(&persistent_state)
-        .context("Failed to serialize daemon state")?;
-
-    tokio::fs::write(&state_file, state_json)
-        .await
-        .context("Failed to write daemon state file")?;
-
-    debug!("Daemon state saved to {path}", path = state_file.display());
-    Ok(())
 }
 
 // Make DaemonState clonable for concurrent processing
