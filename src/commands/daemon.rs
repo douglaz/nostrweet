@@ -21,7 +21,6 @@ pub struct DaemonConfig {
     pub blossom_servers: Vec<String>,
     pub poll_interval: u64,
     pub output_dir: std::path::PathBuf,
-    pub max_concurrent_users: usize,
 }
 
 /// Per-user state tracking
@@ -135,7 +134,7 @@ pub async fn execute(
     blossom_servers: Vec<String>,
     poll_interval: u64,
     output_dir: &Path,
-    max_concurrent_users: Option<usize>,
+    _max_concurrent_users: Option<usize>,
 ) -> Result<()> {
     info!(
         "Starting daemon v2 for {user_count} users with {poll_interval} second base interval",
@@ -148,7 +147,6 @@ pub async fn execute(
         blossom_servers,
         poll_interval,
         output_dir: output_dir.to_path_buf(),
-        max_concurrent_users: max_concurrent_users.unwrap_or(3),
     });
 
     // Initialize daemon state
@@ -272,22 +270,13 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
         }
 
         info!(
-            "Starting concurrent polling for {user_count} users",
+            "Starting sequential polling for {user_count} users",
             user_count = users_to_poll.len()
         );
 
-        // Process users with concurrency control (limited by semaphore)
-        // Note: Using sequential processing with semaphore due to TwitterClient not being Send
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(
-            state.config.max_concurrent_users,
-        ));
-
+        // Process users sequentially with rate limiting
+        // Note: Sequential processing respects Twitter API rate limits via the RateLimiter
         for username in &users_to_poll {
-            let _permit = semaphore
-                .acquire()
-                .await
-                .context("Failed to acquire semaphore permit")?;
-
             // Process user with enhanced error handling
             match process_user_v2(state.clone(), username.clone()).await {
                 Ok(()) => {
