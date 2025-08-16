@@ -363,14 +363,12 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
                 }
             );
             info!(
-                "Tweets: {downloaded} downloaded, {posted} posted to Nostr",
-                downloaded = stats.total_tweets_downloaded,
-                posted = stats.total_tweets_posted
+                "Tweets: {total_tweets_downloaded} downloaded, {total_tweets_posted} posted to Nostr",
+                total_tweets_downloaded = stats.total_tweets_downloaded,
+                total_tweets_posted = stats.total_tweets_posted
             );
             info!(
-                "Users: {healthy} healthy, {failing} failing",
-                healthy = healthy_users,
-                failing = failing_users
+                "Users: {healthy_users} healthy, {failing_users} failing"
             );
 
             // Log failing users for debugging
@@ -619,14 +617,12 @@ fn spawn_stats_reporter(stats: Arc<RwLock<DaemonStats>>) -> tokio::task::JoinHan
             let minutes = (uptime.as_secs() % 3600) / 60;
 
             info!(
-                "📊 Stats | Uptime: {hours}h{minutes}m | Polls: {polls} (✓{success} ✗{failed}) | Downloaded: {downloaded} | Posted: {posted}",
-                hours = hours,
-                minutes = minutes,
-                polls = stats.total_polls,
-                success = stats.successful_polls,
-                failed = stats.failed_polls,
-                downloaded = stats.total_tweets_downloaded,
-                posted = stats.total_tweets_posted
+                "📊 Stats | Uptime: {hours}h{minutes}m | Polls: {total_polls} (✓{successful_polls} ✗{failed_polls}) | Downloaded: {total_tweets_downloaded} | Posted: {total_tweets_posted}",
+                total_polls = stats.total_polls,
+                successful_polls = stats.successful_polls,
+                failed_polls = stats.failed_polls,
+                total_tweets_downloaded = stats.total_tweets_downloaded,
+                total_tweets_posted = stats.total_tweets_posted
             );
         }
     })
@@ -642,26 +638,11 @@ async fn print_final_stats(stats: &Arc<RwLock<DaemonStats>>) {
         "Uptime: {uptime:.2} hours",
         uptime = uptime.as_secs_f64() / 3600.0
     );
-    info!(
-        "Total polls: {total_polls}",
-        total_polls = stats.total_polls
-    );
-    info!(
-        "Successful polls: {successful_polls}",
-        successful_polls = stats.successful_polls
-    );
-    info!(
-        "Failed polls: {failed_polls}",
-        failed_polls = stats.failed_polls
-    );
-    info!(
-        "Total tweets downloaded: {downloaded}",
-        downloaded = stats.total_tweets_downloaded
-    );
-    info!(
-        "Total tweets posted to Nostr: {posted}",
-        posted = stats.total_tweets_posted
-    );
+    info!("Total polls: {total_polls}", total_polls = stats.total_polls);
+    info!("Successful polls: {successful_polls}", successful_polls = stats.successful_polls);
+    info!("Failed polls: {failed_polls}", failed_polls = stats.failed_polls);
+    info!("Total tweets downloaded: {total_tweets_downloaded}", total_tweets_downloaded = stats.total_tweets_downloaded);
+    info!("Total tweets posted to Nostr: {total_tweets_posted}", total_tweets_posted = stats.total_tweets_posted);
     info!("===============================");
 }
 

@@ -358,14 +358,8 @@ async fn main() -> Result<()> {
             poll_interval,
             max_concurrent: _,
         } => {
-            commands::daemon::execute(
-                users,
-                relays,
-                blossom_servers,
-                poll_interval,
-                &output_dir,
-            )
-            .await?
+            commands::daemon::execute(users, relays, blossom_servers, poll_interval, &output_dir)
+                .await?
         }
     }
 
