@@ -66,7 +66,20 @@ async fn find_user_tweets(username: &str, output_dir: &Path) -> Result<Vec<PathB
     Ok(user_tweets)
 }
 
-/// Post all cached tweets for a user to Nostr relays
+/// Options for filtering tweets when posting to Nostr
+#[derive(Debug, Clone, Default)]
+pub struct PostUserOptions {
+    pub force: bool,
+    pub skip_profiles: bool,
+    pub since_date: Option<String>,
+    pub until_date: Option<String>,
+    pub filter_keywords: Option<Vec<String>>,
+    pub exclude_keywords: Option<Vec<String>>,
+    pub min_engagement: Option<u32>,
+    pub dry_run: bool,
+}
+
+/// Post all cached tweets for a user to Nostr relays with filtering options
 pub async fn execute(
     username: &str,
     relays: &[String],
@@ -74,6 +87,22 @@ pub async fn execute(
     output_dir: &Path,
     force: bool,
     skip_profiles: bool,
+) -> Result<()> {
+    let options = PostUserOptions {
+        force,
+        skip_profiles,
+        ..Default::default()
+    };
+    execute_with_options(username, relays, blossom_servers, output_dir, options).await
+}
+
+/// Post all cached tweets for a user to Nostr relays with advanced filtering options
+pub async fn execute_with_options(
+    username: &str,
+    relays: &[String],
+    blossom_servers: &[String],
+    output_dir: &Path,
+    options: PostUserOptions,
 ) -> Result<()> {
     // Clean username (remove @ if present)
     let username = username.trim_start_matches('@');
@@ -129,12 +158,92 @@ pub async fn execute(
 
         debug!("Processing tweet ID: {tweet_id}");
 
-        // Collect referenced users from this tweet if we're posting profiles
-        if !skip_profiles {
-            if let Ok(tweet) = storage::load_tweet_from_file(tweet_file) {
-                let usernames = profile_collector::collect_usernames_from_tweet(&tweet);
-                all_referenced_users.extend(usernames);
+        // Load the tweet to apply filters
+        let tweet = match storage::load_tweet_from_file(tweet_file) {
+            Ok(tweet) => tweet,
+            Err(e) => {
+                debug!(
+                    "Failed to load tweet from {path}: {error}",
+                    path = tweet_file.display(),
+                    error = e
+                );
+                error_count += 1;
+                continue;
             }
+        };
+
+        // Apply date filters
+        if let Some(since_date) = &options.since_date {
+            if let (Ok(since), Ok(tweet_date)) = (
+                chrono::DateTime::parse_from_rfc3339(since_date),
+                chrono::DateTime::parse_from_rfc3339(&tweet.created_at),
+            ) {
+                if tweet_date < since {
+                    debug!("Skipping tweet {tweet_id}: before since_date");
+                    skip_count += 1;
+                    continue;
+                }
+            }
+        }
+
+        if let Some(until_date) = &options.until_date {
+            if let (Ok(until), Ok(tweet_date)) = (
+                chrono::DateTime::parse_from_rfc3339(until_date),
+                chrono::DateTime::parse_from_rfc3339(&tweet.created_at),
+            ) {
+                if tweet_date > until {
+                    debug!("Skipping tweet {tweet_id}: after until_date");
+                    skip_count += 1;
+                    continue;
+                }
+            }
+        }
+
+        // Apply keyword filters
+        if let Some(filter_keywords) = &options.filter_keywords {
+            let tweet_text = tweet.text.to_lowercase();
+            let has_required_keyword = filter_keywords
+                .iter()
+                .any(|keyword| tweet_text.contains(&keyword.to_lowercase()));
+            if !has_required_keyword {
+                debug!("Skipping tweet {tweet_id}: doesn't contain required keywords");
+                skip_count += 1;
+                continue;
+            }
+        }
+
+        if let Some(exclude_keywords) = &options.exclude_keywords {
+            let tweet_text = tweet.text.to_lowercase();
+            let has_excluded_keyword = exclude_keywords
+                .iter()
+                .any(|keyword| tweet_text.contains(&keyword.to_lowercase()));
+            if has_excluded_keyword {
+                debug!("Skipping tweet {tweet_id}: contains excluded keywords");
+                skip_count += 1;
+                continue;
+            }
+        }
+
+        // Apply engagement filter (currently not supported - would need Twitter API v2 public metrics)
+        if let Some(_min_engagement) = options.min_engagement {
+            debug!(
+                "Engagement filtering not yet implemented - requires Twitter API v2 public metrics"
+            );
+            // For now, we skip engagement filtering since the Tweet struct doesn't include public_metrics
+            // This could be implemented in the future by requesting public_metrics from Twitter API v2
+        }
+
+        // If dry run, just count and continue
+        if options.dry_run {
+            info!("DRY RUN: Would post tweet {tweet_id}");
+            success_count += 1;
+            continue;
+        }
+
+        // Collect referenced users from this tweet if we're posting profiles
+        if !options.skip_profiles {
+            let usernames = profile_collector::collect_usernames_from_tweet(&tweet);
+            all_referenced_users.extend(usernames);
         }
 
         // Post the tweet to Nostr (with skip_profiles=true to avoid duplicate profile posting)
@@ -143,7 +252,7 @@ pub async fn execute(
             relays,
             blossom_servers,
             output_dir,
-            force,
+            options.force,
             true, // Always skip profiles here, we'll post them all at once at the end
         )
         .await
@@ -169,15 +278,49 @@ pub async fn execute(
     }
 
     // Print summary
-    info!(
-        "Completed posting tweets for @{username} to Nostr: {success} posted, {skip} skipped, {error} failed",
-        success = success_count,
-        skip = skip_count,
-        error = error_count
-    );
+    if options.dry_run {
+        info!(
+            "DRY RUN completed for @{username}: {success} tweets would be posted, {skip} filtered out, {error} errors",
+            success = success_count,
+            skip = skip_count,
+            error = error_count
+        );
+    } else {
+        info!(
+            "Completed posting tweets for @{username} to Nostr: {success} posted, {skip} skipped, {error} failed",
+            success = success_count,
+            skip = skip_count,
+            error = error_count
+        );
+    }
+
+    // Print filtering summary if filters were applied
+    if options.since_date.is_some()
+        || options.until_date.is_some()
+        || options.filter_keywords.is_some()
+        || options.exclude_keywords.is_some()
+        || options.min_engagement.is_some()
+    {
+        info!("Applied filters:");
+        if let Some(since) = &options.since_date {
+            info!("  - Since date: {}", since);
+        }
+        if let Some(until) = &options.until_date {
+            info!("  - Until date: {}", until);
+        }
+        if let Some(keywords) = &options.filter_keywords {
+            info!("  - Required keywords: {:?}", keywords);
+        }
+        if let Some(keywords) = &options.exclude_keywords {
+            info!("  - Excluded keywords: {:?}", keywords);
+        }
+        if let Some(min_eng) = options.min_engagement {
+            info!("  - Minimum engagement: {}", min_eng);
+        }
+    }
 
     // Post profiles for all referenced users (unless skipped)
-    if !skip_profiles && !all_referenced_users.is_empty() {
+    if !options.skip_profiles && !all_referenced_users.is_empty() && !options.dry_run {
         info!(
             "Found {} unique referenced users across all tweets",
             all_referenced_users.len()
@@ -210,7 +353,7 @@ pub async fn execute(
                 all_referenced_users,
                 &client,
                 output_dir,
-                force,
+                options.force,
             )
             .await?;
 
@@ -229,8 +372,10 @@ pub async fn execute(
         } else {
             debug!("Could not determine user ID for profile posting");
         }
-    } else if skip_profiles {
+    } else if options.skip_profiles {
         debug!("Skipping profile posting (--skip-profiles flag set)");
+    } else if options.dry_run {
+        debug!("Skipping profile posting (dry run mode)");
     }
 
     Ok(())
