@@ -107,7 +107,10 @@ pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bo
     if !skip_profiles {
         let usernames = profile_collector::collect_usernames_from_tweet(&tweet);
         if !usernames.is_empty() {
-            debug!("Found {} referenced users in tweet", usernames.len());
+            debug!(
+                "Found {user_count} referenced users in tweet",
+                user_count = usernames.len()
+            );
 
             let username_vec: Vec<String> = usernames.into_iter().collect();
             let client = twitter::TwitterClient::new(output_dir)
@@ -119,7 +122,10 @@ pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bo
             {
                 Ok(profiles) => {
                     if !profiles.is_empty() {
-                        info!("Downloaded {} new user profiles", profiles.len());
+                        info!(
+                            "Downloaded {profile_count} new user profiles",
+                            profile_count = profiles.len()
+                        );
                     }
                 }
                 Err(e) => {

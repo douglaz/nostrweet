@@ -23,7 +23,7 @@ pub async fn execute(relays: &[String]) -> Result<()> {
         .context("Failed to update relay list")?;
 
     info!("Successfully updated relay list for master key");
-    info!("Public key: {}", keys.public_key());
+    info!("Public key: {public_key}", public_key = keys.public_key());
 
     Ok(())
 }

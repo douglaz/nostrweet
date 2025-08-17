@@ -654,7 +654,10 @@ fn expand_urls_in_text(
                         }
                     }
                 } else {
-                    debug!("URL {} is not shortened, keeping as-is", url_entity.url);
+                    debug!(
+                        "URL {url} is not shortened, keeping as-is",
+                        url = url_entity.url
+                    );
                 }
             }
         }
@@ -797,7 +800,7 @@ fn safe_replace_url(text: &str, old_url: &str, new_url: &str) -> String {
     if text.contains(old_url) {
         text.replace(old_url, new_url)
     } else {
-        debug!("URL {} not found in text, skipping replacement", old_url);
+        debug!("URL {old_url} not found in text, skipping replacement");
         text.to_string()
     }
 }
@@ -1328,23 +1331,24 @@ fn format_retweet_with_mentions(
         content.push_str(&format!("{tweet_url}\n"));
     } else {
         // Fallback for simple retweets without data
-        if is_simple_retweet && rt_username.is_some() {
-            let username = rt_username.as_ref().unwrap();
-            // Try to resolve the username
-            if let Some(pubkey) = resolver.resolve_username(username)? {
-                mentioned_pubkeys.push(pubkey);
-                let npub = pubkey
-                    .to_bech32()
-                    .map_err(|e| anyhow::anyhow!("Failed to convert to bech32: {e}"))?;
-                content.push_str(&format!(
-                    "🔁 @{author} retweeted nostr:{npub}:\n{tweet_url}\n",
-                    author = tweet.author.username
-                ));
-            } else {
-                content.push_str(&format!(
-                    "🔁 @{author} retweeted @{username}:\n{tweet_url}\n",
-                    author = tweet.author.username
-                ));
+        if is_simple_retweet {
+            if let Some(username) = rt_username.as_ref() {
+                // Try to resolve the username
+                if let Some(pubkey) = resolver.resolve_username(username)? {
+                    mentioned_pubkeys.push(pubkey);
+                    let npub = pubkey
+                        .to_bech32()
+                        .map_err(|e| anyhow::anyhow!("Failed to convert to bech32: {e}"))?;
+                    content.push_str(&format!(
+                        "🔁 @{author} retweeted nostr:{npub}:\n{tweet_url}\n",
+                        author = tweet.author.username
+                    ));
+                } else {
+                    content.push_str(&format!(
+                        "🔁 @{author} retweeted @{username}:\n{tweet_url}\n",
+                        author = tweet.author.username
+                    ));
+                }
             }
         } else {
             content.push_str(&format!(

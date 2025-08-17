@@ -1188,7 +1188,10 @@ impl TwitterClient {
         let uncached_usernames = filter_uncached_usernames(username_set, output_dir).await?;
 
         if uncached_usernames.is_empty() {
-            debug!("All {} profiles already cached", usernames.len());
+            debug!(
+                "All {profile_count} profiles already cached",
+                profile_count = usernames.len()
+            );
             return Ok(Vec::new());
         }
 

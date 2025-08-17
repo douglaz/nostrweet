@@ -194,7 +194,10 @@ pub async fn execute(
             {
                 Ok(profiles) => {
                     if !profiles.is_empty() {
-                        info!("Downloaded {} new user profiles", profiles.len());
+                        info!(
+                            "Downloaded {profile_count} new user profiles",
+                            profile_count = profiles.len()
+                        );
                     }
                 }
                 Err(e) => {
