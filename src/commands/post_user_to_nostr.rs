@@ -75,7 +75,6 @@ pub struct PostUserOptions {
     pub until_date: Option<String>,
     pub filter_keywords: Option<Vec<String>>,
     pub exclude_keywords: Option<Vec<String>>,
-    pub min_engagement: Option<u32>,
     pub dry_run: bool,
 }
 
@@ -224,15 +223,6 @@ pub async fn execute_with_options(
             }
         }
 
-        // Apply engagement filter (currently not supported - would need Twitter API v2 public metrics)
-        if let Some(_min_engagement) = options.min_engagement {
-            debug!(
-                "Engagement filtering not yet implemented - requires Twitter API v2 public metrics"
-            );
-            // For now, we skip engagement filtering since the Tweet struct doesn't include public_metrics
-            // This could be implemented in the future by requesting public_metrics from Twitter API v2
-        }
-
         // If dry run, just count and continue
         if options.dry_run {
             info!("DRY RUN: Would post tweet {tweet_id}");
@@ -299,7 +289,6 @@ pub async fn execute_with_options(
         || options.until_date.is_some()
         || options.filter_keywords.is_some()
         || options.exclude_keywords.is_some()
-        || options.min_engagement.is_some()
     {
         info!("Applied filters:");
         if let Some(since) = &options.since_date {
@@ -313,12 +302,6 @@ pub async fn execute_with_options(
         }
         if let Some(keywords) = &options.exclude_keywords {
             info!("  - Excluded keywords: {:?}", keywords);
-        }
-        if let Some(min_eng) = options.min_engagement {
-            info!(
-                "  - Minimum engagement: {min_engagement}",
-                min_engagement = min_eng
-            );
         }
     }
 
