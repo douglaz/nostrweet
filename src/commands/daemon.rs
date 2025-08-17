@@ -12,7 +12,7 @@ use crate::nostr;
 use crate::nostr_profile;
 use crate::profile_collector;
 use crate::storage;
-use crate::twitter::TwitterClient;
+use crate::twitter::{TwitterClient, TwitterError};
 
 /// Configuration for the daemon
 pub struct DaemonConfig {
@@ -307,10 +307,33 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
                         }
                     }
 
-                    // Check if it's a rate limit error and handle accordingly
-                    if e.to_string().contains("rate limit") || e.to_string().contains("429") {
-                        warn!("Rate limit detected for @{username}, will back off");
-                        // Rate limiter will handle the backoff automatically
+                    // Check error type using proper error matching instead of string checking
+                    if let Some(twitter_err) = e.downcast_ref::<TwitterError>() {
+                        match twitter_err {
+                            TwitterError::RateLimit {
+                                reset_time,
+                                remaining,
+                            } => {
+                                warn!("Rate limit detected for @{username}, will back off until {reset_time:?} (remaining: {remaining:?})");
+                            }
+                            TwitterError::UserNotFound { username: user } => {
+                                error!("User @{user} not found, will continue retrying");
+                            }
+                            TwitterError::TweetNotFound { tweet_id } => {
+                                debug!("Tweet {tweet_id} not found for @{username}");
+                            }
+                            TwitterError::Network { message } => {
+                                warn!("Network error for @{username}: {message}");
+                            }
+                            TwitterError::ApiError { status, message } => {
+                                warn!("API error for @{username} (status {status}): {message}");
+                            }
+                            TwitterError::Other(_) => {
+                                debug!("Other error for @{username}: {e}");
+                            }
+                        }
+                    } else {
+                        debug!("Non-Twitter error for @{username}: {e}");
                     }
                 }
             }
@@ -707,30 +730,50 @@ pub async fn fetch_timeline_with_retry(
         {
             Ok(tweets) => Ok(tweets),
             Err(e) => {
-                let error_str = e.to_string();
-
-                // Check if it's a rate limit error
-                if error_str.contains("429") || error_str.contains("rate limit") {
-                    warn!("Rate limited when fetching @{username}, backing off");
-                    Err(backoff::Error::transient(e))
-                }
-                // Check if it's a network error
-                else if error_str.contains("network")
-                    || error_str.contains("connection")
-                    || error_str.contains("timeout")
-                {
-                    warn!("Network error when fetching @{username}, retrying");
-                    Err(backoff::Error::transient(e))
-                }
-                // User not found or other permanent errors
-                else if error_str.contains("404") || error_str.contains("not found") {
-                    error!("User @{username} not found");
-                    Err(backoff::Error::permanent(e))
-                }
-                // Unknown error - treat as permanent
-                else {
-                    error!("Permanent error fetching @{username}: {e}");
-                    Err(backoff::Error::permanent(e))
+                // Use proper error matching instead of string checking
+                if let Some(twitter_err) = e.downcast_ref::<TwitterError>() {
+                    match twitter_err {
+                        TwitterError::RateLimit { reset_time, remaining } => {
+                            warn!("Rate limited when fetching @{username}, backing off until {reset_time:?} (remaining: {remaining:?})");
+                            Err(backoff::Error::transient(e))
+                        }
+                        TwitterError::UserNotFound { username: user } => {
+                            error!("User @{user} not found");
+                            Err(backoff::Error::permanent(e))
+                        }
+                        TwitterError::TweetNotFound { tweet_id } => {
+                            debug!("Tweet {tweet_id} not found when fetching @{username}");
+                            Err(backoff::Error::permanent(e))
+                        }
+                        TwitterError::Network { message } => {
+                            warn!("Network error when fetching @{username}: {message}, retrying");
+                            Err(backoff::Error::transient(e))
+                        }
+                        TwitterError::ApiError { status, message } => {
+                            // Treat 5xx errors as transient, others as permanent
+                            if *status >= 500 && *status < 600 {
+                                warn!("Server error when fetching @{username} (status {status}): {message}, retrying");
+                                Err(backoff::Error::transient(e))
+                            } else {
+                                error!("API error when fetching @{username} (status {status}): {message}");
+                                Err(backoff::Error::permanent(e))
+                            }
+                        }
+                        TwitterError::Other(_) => {
+                            error!("Other error fetching @{username}: {e}");
+                            Err(backoff::Error::permanent(e))
+                        }
+                    }
+                } else {
+                    // For non-Twitter errors, try to infer from error message as fallback
+                    let error_str = e.to_string().to_lowercase();
+                    if error_str.contains("network") || error_str.contains("connection") || error_str.contains("timeout") {
+                        warn!("Network error when fetching @{username}, retrying: {e}");
+                        Err(backoff::Error::transient(e))
+                    } else {
+                        error!("Unknown error fetching @{username}: {e}");
+                        Err(backoff::Error::permanent(e))
+                    }
                 }
             }
         }

@@ -7,8 +7,34 @@ use regex::Regex;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::{fs, future::Future, path::Path, pin::Pin, time::Duration};
+use thiserror::Error;
 use tracing::{debug, info};
 use url::Url;
+
+/// Twitter API specific errors with structured information
+#[derive(Debug, Error)]
+pub enum TwitterError {
+    #[error("Rate limit exceeded (reset at {reset_time:?}, remaining: {remaining:?})")]
+    RateLimit {
+        reset_time: Option<u64>,
+        remaining: Option<u64>,
+    },
+
+    #[error("User not found: {username}")]
+    UserNotFound { username: String },
+
+    #[error("Tweet not found: {tweet_id}")]
+    TweetNotFound { tweet_id: String },
+
+    #[error("Network error: {message}")]
+    Network { message: String },
+
+    #[error("API error (status {status}): {message}")]
+    ApiError { status: u16, message: String },
+
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
 
 const TWITTER_API_BASE: &str = "https://api.twitter.com/2";
 
@@ -296,7 +322,11 @@ impl TwitterClient {
 
                 if attempt >= max_attempts {
                     debug!("Maximum retry attempts ({max_attempts}) reached for {resource_id}, rate limit reset: {rate_limit_reset:?}", rate_limit_reset = rate_limits.reset);
-                    bail!("Twitter API error: Rate limit exceeded after {attempt} attempts");
+                    return Err(TwitterError::RateLimit {
+                        reset_time: rate_limits.reset,
+                        remaining: rate_limits.remaining,
+                    }
+                    .into());
                 }
 
                 // First check Twitter-specific rate limit headers
@@ -354,13 +384,28 @@ impl TwitterClient {
                        remaining = rate_limits.remaining,
                        reset = rate_limits.reset);
             } else {
-                bail!(
-                    "Twitter API error: Status {status}, limit: {limit:?}, remaining: {remaining:?}, reset: {reset:?}",
-                    status = response.status(),
+                let status_code = response.status().as_u16();
+                let error_message = format!(
+                    "limit: {limit:?}, remaining: {remaining:?}, reset: {reset:?}",
                     limit = rate_limits.limit,
                     remaining = rate_limits.remaining,
                     reset = rate_limits.reset
                 );
+
+                return Err(match response.status() {
+                    StatusCode::NOT_FOUND => TwitterError::UserNotFound {
+                        username: resource_id.to_string(),
+                    },
+                    StatusCode::TOO_MANY_REQUESTS => TwitterError::RateLimit {
+                        reset_time: rate_limits.reset,
+                        remaining: rate_limits.remaining,
+                    },
+                    _ => TwitterError::ApiError {
+                        status: status_code,
+                        message: error_message,
+                    },
+                }
+                .into());
             }
 
             return Ok(response);
@@ -553,7 +598,10 @@ impl TwitterClient {
                         "Tweet {tweet_id} is cached as not found in {path}, skipping API call",
                         path = cache_path.display()
                     );
-                    bail!("Tweet {tweet_id} is cached as not found");
+                    return Err(TwitterError::TweetNotFound {
+                        tweet_id: tweet_id.to_string(),
+                    }
+                    .into());
                 }
             }
         }
@@ -618,7 +666,21 @@ impl TwitterClient {
                 }
             }
 
-            bail!("Twitter API returned error for tweet {tweet_id}: {error_detail}");
+            // Check if this is a "not found" error
+            if error_type == Some("https://api.twitter.com/2/problems/resource-not-found")
+                || error_title == Some("Not Found Error")
+            {
+                return Err(TwitterError::TweetNotFound {
+                    tweet_id: tweet_id.to_string(),
+                }
+                .into());
+            } else {
+                return Err(TwitterError::ApiError {
+                    status: 400, // Default status for API errors
+                    message: format!("Twitter API error: {error_detail}"),
+                }
+                .into());
+            }
         }
 
         // Extract the tweet data
