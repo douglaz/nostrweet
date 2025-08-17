@@ -270,17 +270,11 @@ pub async fn execute_with_options(
     // Print summary
     if options.dry_run {
         info!(
-            "DRY RUN completed for @{username}: {success} tweets would be posted, {skip} filtered out, {error} errors",
-            success = success_count,
-            skip = skip_count,
-            error = error_count
+            "DRY RUN completed for @{username}: {success_count} tweets would be posted, {skip_count} filtered out, {error_count} errors"
         );
     } else {
         info!(
-            "Completed posting tweets for @{username} to Nostr: {success} posted, {skip} skipped, {error} failed",
-            success = success_count,
-            skip = skip_count,
-            error = error_count
+            "Completed posting tweets for @{username} to Nostr: {success_count} posted, {skip_count} skipped, {error_count} failed"
         );
     }
 
