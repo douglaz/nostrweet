@@ -342,7 +342,7 @@ pub async fn upload_media_to_blossom(
                             } else {
                                 Duration::from_millis(RETRY_DELAY_MS)
                             };
-                            warn!("Waiting {:?} before retry", wait_dur);
+                            warn!("Waiting {wait_dur:?} before retry");
                             sleep(wait_dur).await;
                             continue;
                         } else {
@@ -609,15 +609,16 @@ fn expand_urls_in_text(
 
     if let Some(entities) = entities {
         if let Some(urls) = &entities.urls {
-            // Process URLs in reverse order to preserve string indices
-            for url_entity in urls.iter().rev() {
+            // Process URLs in reverse order by length to handle overlapping replacements
+            let mut sorted_urls: Vec<_> = urls.iter().collect();
+            sorted_urls.sort_by(|a, b| b.url.len().cmp(&a.url.len()));
+
+            for url_entity in sorted_urls {
                 // Only replace if the URL is actually shortened (expanded URL is different)
                 if url_entity.url != url_entity.expanded_url {
-                    // Check if this is a media URL (expanded URL points to photo/video on Twitter)
-                    let is_media_url = url_entity.expanded_url.contains("/photo/")
-                        || url_entity.expanded_url.contains("/video/")
-                        || url_entity.expanded_url.contains("/status/")
-                            && url_entity.display_url.starts_with("pic.");
+                    // Enhanced media URL detection
+                    let is_media_url =
+                        is_twitter_media_url(&url_entity.expanded_url, &url_entity.display_url);
 
                     if is_media_url {
                         // Find the corresponding media URL from the tweet's media
@@ -625,30 +626,38 @@ fn expand_urls_in_text(
                             find_media_url_for_shortened_url(&url_entity.url, tweet, media_urls)
                         {
                             // Replace with the actual media URL (no markdown formatting for direct media)
-                            result = result.replace(&url_entity.url, &media_url);
+                            result = safe_replace_url(&result, &url_entity.url, &media_url);
                             used_media_urls.push(media_url);
                         } else {
                             // Fallback: use the original markdown link format if no media URL found
-                            result = result.replace(
-                                &url_entity.url,
-                                &format!(
-                                    "[{}]({})",
-                                    url_entity.display_url, url_entity.expanded_url
-                                ),
+                            let fallback_link = format!(
+                                "[{}]({})",
+                                sanitize_display_url(&url_entity.display_url),
+                                &url_entity.expanded_url
                             );
+                            result = safe_replace_url(&result, &url_entity.url, &fallback_link);
                         }
                     } else {
                         // Non-media URL: use regular expansion with markdown format
-                        if UrlParser::parse(&url_entity.expanded_url).is_ok() {
-                            result = result.replace(
-                                &url_entity.url,
-                                &format!(
-                                    "[{}]({})",
-                                    url_entity.display_url, url_entity.expanded_url
-                                ),
+                        if is_valid_url(&url_entity.expanded_url) {
+                            let markdown_link = format!(
+                                "[{}]({})",
+                                sanitize_display_url(&url_entity.display_url),
+                                &url_entity.expanded_url
+                            );
+                            result = safe_replace_url(&result, &url_entity.url, &markdown_link);
+                        } else {
+                            debug!(
+                                "Invalid expanded URL {}, keeping original",
+                                url_entity.expanded_url
                             );
                         }
                     }
+                } else {
+                    debug!(
+                        "URL {url} is not shortened, keeping as-is",
+                        url = url_entity.url
+                    );
                 }
             }
         }
@@ -665,26 +674,37 @@ fn find_media_url_for_shortened_url(
 ) -> Option<String> {
     // For video tweets, the media_urls should contain the actual video URLs
     // We need to find the best quality video variant to replace the t.co URL
-    if !media_urls.is_empty() && shortened_url.contains("t.co") {
-        // Check if this t.co URL has a corresponding video/photo entity
-        if let Some(entities) = &tweet.entities {
-            if let Some(urls) = &entities.urls {
-                for url_entity in urls {
-                    if url_entity.url == shortened_url {
-                        // This is the matching t.co URL
-                        // If it's a video or photo URL, return the best media URL
-                        if url_entity.expanded_url.contains("/video/")
-                            || url_entity.expanded_url.contains("/photo/")
-                            || url_entity.display_url.starts_with("pic.")
-                        {
-                            // For videos, prefer the highest quality variant which is typically last in media_urls
+    if media_urls.is_empty() || !shortened_url.contains("t.co") {
+        return None;
+    }
+
+    // First, try to match using URL entities
+    if let Some(entities) = &tweet.entities {
+        if let Some(urls) = &entities.urls {
+            for url_entity in urls {
+                if url_entity.url == shortened_url {
+                    // This is the matching t.co URL
+                    // If it's a video or photo URL, return the best media URL
+                    if is_twitter_media_url(&url_entity.expanded_url, &url_entity.display_url) {
+                        // For videos, prefer the highest quality variant which is typically last in media_urls
+                        // For images, any media URL should work
+                        if url_entity.expanded_url.contains("/video/") {
                             return media_urls.last().cloned();
+                        } else {
+                            return media_urls.first().cloned();
                         }
                     }
                 }
             }
         }
     }
+
+    // Fallback: if we have exactly one media URL and this looks like a media t.co URL,
+    // assume they correspond
+    if media_urls.len() == 1 {
+        return Some(media_urls[0].clone());
+    }
+
     None
 }
 
@@ -697,6 +717,7 @@ fn process_mentions_in_text(
 ) -> Result<(String, Vec<PublicKey>)> {
     let mut result = text.to_string();
     let mut mentioned_pubkeys = Vec::new();
+    let mut processed_usernames = std::collections::HashSet::new();
 
     if let Some(entities) = entities {
         if let Some(mentions) = &entities.mentions {
@@ -704,26 +725,55 @@ fn process_mentions_in_text(
             for mention in mentions {
                 let username = &mention.username;
 
+                // Skip if we've already processed this username (avoid duplicates)
+                if processed_usernames.contains(username) {
+                    continue;
+                }
+                processed_usernames.insert(username.clone());
+
                 // Try to resolve the Twitter username to a Nostr pubkey
-                if let Some(pubkey) = resolver.resolve_username(username)? {
-                    // Convert pubkey to npub format
-                    let npub = pubkey
-                        .to_bech32()
-                        .map_err(|e| anyhow::anyhow!("Failed to convert to bech32: {e}"))?;
+                match resolver.resolve_username(username) {
+                    Ok(Some(pubkey)) => {
+                        // Convert pubkey to npub format
+                        match pubkey.to_bech32() {
+                            Ok(npub) => {
+                                // Replace @username with nostr:npub... link
+                                let old_mention = format!("@{username}");
+                                let new_mention = format!("nostr:{npub}");
+                                result = result.replace(&old_mention, &new_mention);
 
-                    // Replace @username with nostr:npub... link
-                    let old_mention = format!("@{username}");
-                    let new_mention = format!("nostr:{npub}");
-                    result = result.replace(&old_mention, &new_mention);
+                                // Add to mentioned pubkeys list
+                                mentioned_pubkeys.push(pubkey);
 
-                    // Add to mentioned pubkeys list
-                    mentioned_pubkeys.push(pubkey);
-
-                    debug!("Converted @{username} to {npub}");
-                } else {
-                    debug!("Could not resolve @{username} to Nostr pubkey, keeping as-is");
+                                debug!("Converted @{username} to {npub}");
+                            }
+                            Err(e) => {
+                                warn!("Failed to convert pubkey to bech32 for @{username}: {e}");
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        debug!("Could not resolve @{username} to Nostr pubkey, keeping as-is");
+                    }
+                    Err(e) => {
+                        warn!("Error resolving @{username}: {e}");
+                    }
                 }
             }
+        }
+    }
+
+    // Also try to process any @mentions that weren't captured in entities
+    // This handles edge cases where Twitter's entity extraction might miss some mentions
+    let additional_mentions = extract_additional_mentions(&result, &processed_usernames);
+    for username in additional_mentions {
+        if let Ok(Some(pubkey)) = resolver.resolve_username(&username) {
+            let npub = pubkey.to_bech32().expect("to_bech32 should never fail");
+            let old_mention = format!("@{username}");
+            let new_mention = format!("nostr:{npub}");
+            result = result.replace(&old_mention, &new_mention);
+            mentioned_pubkeys.push(pubkey);
+            debug!("Converted additional @{username} to {npub}");
         }
     }
 
@@ -733,6 +783,63 @@ fn process_mentions_in_text(
 /// Decode HTML entities in text (e.g., &gt; to >, &lt; to <, &amp; to &)
 fn decode_html_entities(text: &str) -> String {
     html_escape::decode_html_entities(text).to_string()
+}
+
+/// Enhanced detection of Twitter media URLs
+fn is_twitter_media_url(expanded_url: &str, display_url: &str) -> bool {
+    expanded_url.contains("/photo/")
+        || expanded_url.contains("/video/")
+        || expanded_url.contains("/status/") && display_url.starts_with("pic.")
+        || display_url.starts_with("pic.twitter.com")
+        || display_url.starts_with("video.twimg.com")
+}
+
+/// Safely replace a URL in text, handling edge cases
+fn safe_replace_url(text: &str, old_url: &str, new_url: &str) -> String {
+    // Only replace if the old URL exists in the text
+    if text.contains(old_url) {
+        text.replace(old_url, new_url)
+    } else {
+        debug!("URL {old_url} not found in text, skipping replacement");
+        text.to_string()
+    }
+}
+
+/// Sanitize display URL to prevent markdown injection
+fn sanitize_display_url(display_url: &str) -> String {
+    display_url
+        .replace('[', "\\[")
+        .replace(']', "\\]")
+        .replace('(', "\\(")
+        .replace(')', "\\)")
+}
+
+/// Validate if a URL is properly formatted
+fn is_valid_url(url: &str) -> bool {
+    UrlParser::parse(url).is_ok() && (url.starts_with("http://") || url.starts_with("https://"))
+}
+
+/// Extract additional @mentions that might not be in Twitter entities
+fn extract_additional_mentions(
+    text: &str,
+    already_processed: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    let mut mentions = Vec::new();
+
+    // Simple regex to find @username patterns
+    for word in text.split_whitespace() {
+        if word.starts_with('@') && word.len() > 1 {
+            let username = word[1..].trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_');
+            if !username.is_empty()
+                && username.len() <= 15 // Twitter username length limit
+                && !already_processed.contains(username)
+            {
+                mentions.push(username.to_string());
+            }
+        }
+    }
+
+    mentions
 }
 
 /// Format a tweet as Nostr content with mention resolution
@@ -1224,23 +1331,24 @@ fn format_retweet_with_mentions(
         content.push_str(&format!("{tweet_url}\n"));
     } else {
         // Fallback for simple retweets without data
-        if is_simple_retweet && rt_username.is_some() {
-            let username = rt_username.as_ref().unwrap();
-            // Try to resolve the username
-            if let Some(pubkey) = resolver.resolve_username(username)? {
-                mentioned_pubkeys.push(pubkey);
-                let npub = pubkey
-                    .to_bech32()
-                    .map_err(|e| anyhow::anyhow!("Failed to convert to bech32: {e}"))?;
-                content.push_str(&format!(
-                    "🔁 @{author} retweeted nostr:{npub}:\n{tweet_url}\n",
-                    author = tweet.author.username
-                ));
-            } else {
-                content.push_str(&format!(
-                    "🔁 @{author} retweeted @{username}:\n{tweet_url}\n",
-                    author = tweet.author.username
-                ));
+        if is_simple_retweet {
+            if let Some(username) = rt_username.as_ref() {
+                // Try to resolve the username
+                if let Some(pubkey) = resolver.resolve_username(username)? {
+                    mentioned_pubkeys.push(pubkey);
+                    let npub = pubkey
+                        .to_bech32()
+                        .map_err(|e| anyhow::anyhow!("Failed to convert to bech32: {e}"))?;
+                    content.push_str(&format!(
+                        "🔁 @{author} retweeted nostr:{npub}:\n{tweet_url}\n",
+                        author = tweet.author.username
+                    ));
+                } else {
+                    content.push_str(&format!(
+                        "🔁 @{author} retweeted @{username}:\n{tweet_url}\n",
+                        author = tweet.author.username
+                    ));
+                }
             }
         } else {
             content.push_str(&format!(

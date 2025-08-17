@@ -248,7 +248,7 @@ cargo test test_name -- --nocapture
 #### Automated Checks
 Git hooks are **automatically configured** when entering the nix development environment:
 - **pre-commit**: Runs `cargo fmt --check` to ensure code is formatted
-- **pre-push**: Runs both `cargo fmt --check` and `cargo clippy -- -D warnings`
+- **pre-push**: Runs both `cargo fmt --check` and `cargo clippy --all-targets --all-features -- -D warnings`
 
 #### Manual Checks
 ```bash
@@ -256,7 +256,7 @@ Git hooks are **automatically configured** when entering the nix development env
 just final-check
 
 # Individual checks
-cargo clippy --locked --offline --workspace --all-targets -- --deny warnings
+cargo clippy --locked --offline --workspace --all-targets --all-features -- --deny warnings
 cargo fmt --all
 cargo test
 ```

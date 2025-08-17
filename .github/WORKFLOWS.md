@@ -156,7 +156,7 @@ nix develop -c cargo build --release --target x86_64-unknown-linux-musl
 build:     cargo build --workspace --all-targets
 check:     cargo check --workspace --all-targets  
 test:      cargo test
-clippy:    cargo clippy -- --deny warnings
+clippy:    cargo clippy --workspace --all-targets --all-features -- --deny warnings
 format:    cargo fmt --all
 final-check: lint clippy test
 ```

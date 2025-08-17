@@ -29,11 +29,11 @@ check:
 
 # Run clippy lints
 clippy:
-    cargo clippy --workspace --all-targets -- --deny warnings
+    cargo clippy --workspace --all-targets --all-features -- --deny warnings
 
 # Fix clippy warnings automatically
 clippy-fix:
-    cargo clippy --workspace --all-targets --fix
+    cargo clippy --workspace --all-targets --all-features --fix
 
 # Format all code
 format:

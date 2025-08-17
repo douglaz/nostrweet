@@ -28,7 +28,9 @@ pub fn derive_key_for_twitter_user(twitter_user_id: &str) -> Result<Keys> {
 
     // Take first 4 bytes of hash and convert to u32, then ensure it's within valid range
     // BIP32 allows account indices from 0 to 2^31-1 (hardened derivation)
-    let account_bytes: [u8; 4] = hash[0..4].try_into().unwrap();
+    let account_bytes: [u8; 4] = hash[0..4]
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Failed to extract 4 bytes from hash"))?;
     let account_raw = u32::from_be_bytes(account_bytes);
     let account = account_raw & 0x7FFFFFFF; // Ensure it's within 31-bit range
 

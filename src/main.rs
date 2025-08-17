@@ -225,10 +225,6 @@ enum Commands {
         /// Seconds between polling cycles
         #[arg(short, long, default_value = "300")]
         poll_interval: u64,
-
-        /// Maximum concurrent users to process
-        #[arg(short = 'c', long, default_value = "3")]
-        max_concurrent: usize,
     },
 }
 
@@ -356,17 +352,9 @@ async fn main() -> Result<()> {
             relays,
             blossom_servers,
             poll_interval,
-            max_concurrent,
         } => {
-            commands::daemon::execute(
-                users,
-                relays,
-                blossom_servers,
-                poll_interval,
-                &output_dir,
-                Some(max_concurrent),
-            )
-            .await?
+            commands::daemon::execute(users, relays, blossom_servers, poll_interval, &output_dir)
+                .await?
         }
     }
 

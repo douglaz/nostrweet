@@ -12,7 +12,7 @@ use crate::nostr;
 use crate::nostr_profile;
 use crate::profile_collector;
 use crate::storage;
-use crate::twitter::TwitterClient;
+use crate::twitter::{TwitterClient, TwitterError};
 
 /// Configuration for the daemon
 pub struct DaemonConfig {
@@ -21,7 +21,6 @@ pub struct DaemonConfig {
     pub blossom_servers: Vec<String>,
     pub poll_interval: u64,
     pub output_dir: std::path::PathBuf,
-    pub max_concurrent_users: usize,
 }
 
 /// Per-user state tracking
@@ -117,7 +116,7 @@ impl RateLimiter {
                 let wait_until = oldest + self.window_duration;
                 let wait_duration = wait_until.saturating_duration_since(Instant::now());
                 if wait_duration > Duration::ZERO {
-                    info!("Rate limit reached, waiting {:?}", wait_duration);
+                    info!("Rate limit reached, waiting {wait_duration:?}");
                     time::sleep(wait_duration).await;
                 }
             }
@@ -135,12 +134,10 @@ pub async fn execute(
     blossom_servers: Vec<String>,
     poll_interval: u64,
     output_dir: &Path,
-    max_concurrent_users: Option<usize>,
 ) -> Result<()> {
     info!(
-        "Starting daemon v2 for {} users with {} second base interval",
-        users.len(),
-        poll_interval
+        "Starting daemon v2 for {user_count} users with {poll_interval} second base interval",
+        user_count = users.len()
     );
 
     let config = Arc::new(DaemonConfig {
@@ -149,7 +146,6 @@ pub async fn execute(
         blossom_servers,
         poll_interval,
         output_dir: output_dir.to_path_buf(),
-        max_concurrent_users: max_concurrent_users.unwrap_or(3),
     });
 
     // Initialize daemon state
@@ -174,7 +170,7 @@ pub async fn execute(
 
     // Run the main daemon loop with shutdown handling
     tokio::select! {
-        result = run_daemon_v2(state) => {
+        result = run_daemon_v2(state.clone()) => {
             if let Err(e) = result {
                 error!("Daemon error: {e}");
                 return Err(e);
@@ -182,10 +178,16 @@ pub async fn execute(
             Ok(())
         }
         _ = shutdown_rx => {
-            info!("Shutting down daemon gracefully");
+            info!("Received shutdown signal, gracefully shutting down daemon...");
+
+            // Cancel the stats reporter
             stats_handle.abort();
+
+            // No longer saving daemon state - all state inferred from disk cache
+
+            // Print final statistics
             print_final_stats(&final_stats).await;
-            info!("All state has been persisted to disk");
+            info!("Daemon shutdown complete");
             Ok(())
         }
     }
@@ -205,7 +207,10 @@ async fn init_daemon(config: Arc<DaemonConfig>) -> Result<DaemonState> {
     );
 
     // Connect to Nostr relays
-    info!("Connecting to {} Nostr relays", config.relays.len());
+    info!(
+        "Connecting to {relay_count} Nostr relays",
+        relay_count = config.relays.len()
+    );
     // Use ephemeral keys for relay connection (just for subscribing/querying)
     let keys = nostr_sdk::Keys::generate();
     let nostr_client = Arc::new(
@@ -259,30 +264,140 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
         }
 
         info!(
-            "Starting concurrent polling for {} users",
-            users_to_poll.len()
+            "Starting sequential polling for {user_count} users",
+            user_count = users_to_poll.len()
         );
 
-        // Process users with concurrency control (limited by semaphore)
-        // Note: Using sequential processing with semaphore due to TwitterClient not being Send
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(
-            state.config.max_concurrent_users,
-        ));
+        // Process users sequentially with rate limiting
+        // Note: Sequential processing respects Twitter API rate limits via the RateLimiter
+        for username in &users_to_poll {
+            // Process user with enhanced error handling
+            match process_user_v2(state.clone(), username.clone()).await {
+                Ok(()) => {
+                    debug!("Successfully processed user: {username}");
+                    // Reset failure count on success
+                    let mut user_states = state.user_states.write().await;
+                    if let Some(user_state) = user_states.get_mut(username) {
+                        user_state.consecutive_failures = 0;
+                        user_state.last_success_time = Some(Instant::now());
+                    }
+                }
+                Err(e) => {
+                    error!("Error processing user @{username}: {e}");
 
-        for username in users_to_poll {
-            let _permit = semaphore.acquire().await.unwrap();
+                    // Update failure count
+                    let mut user_states = state.user_states.write().await;
+                    if let Some(user_state) = user_states.get_mut(username) {
+                        user_state.consecutive_failures += 1;
 
-            // Process user inline
-            if let Err(e) = process_user_v2(state.clone(), username).await {
-                error!("Error processing user: {e}");
+                        // Log different levels based on failure count
+                        match user_state.consecutive_failures {
+                            1..=2 => warn!(
+                                "User @{username} failed {failures} times, will retry with backoff",
+                                failures = user_state.consecutive_failures
+                            ),
+                            3..=5 => error!(
+                                "User @{username} failed {failures} times, increasing backoff delay",
+                                failures = user_state.consecutive_failures
+                            ),
+                            _ => error!(
+                                "User @{username} failed {failures} times, may need manual intervention",
+                                failures = user_state.consecutive_failures
+                            ),
+                        }
+                    }
+
+                    // Check error type using proper error matching instead of string checking
+                    if let Some(twitter_err) = e.downcast_ref::<TwitterError>() {
+                        match twitter_err {
+                            TwitterError::RateLimit {
+                                reset_time,
+                                remaining,
+                            } => {
+                                warn!("Rate limit detected for @{username}, will back off until {reset_time:?} (remaining: {remaining:?})");
+                            }
+                            TwitterError::UserNotFound { username: user } => {
+                                error!("User @{user} not found, will continue retrying");
+                            }
+                            TwitterError::TweetNotFound { tweet_id } => {
+                                debug!("Tweet {tweet_id} not found for @{username}");
+                            }
+                            TwitterError::ApiError { status, message } => {
+                                warn!("API error for @{username} (status {status}): {message}");
+                            }
+                            TwitterError::Other(_) => {
+                                debug!("Other error for @{username}: {e}");
+                            }
+                        }
+                    } else {
+                        debug!("Non-Twitter error for @{username}: {e}");
+                    }
+                }
             }
         }
 
         let poll_duration = poll_start.elapsed();
+
+        // Update statistics
+        let mut stats_guard = state.stats.write().await;
+        stats_guard.total_polls += 1;
+        if !users_to_poll.is_empty() {
+            stats_guard.successful_polls += 1;
+        }
+        drop(stats_guard);
+
         info!(
-            "Polling cycle completed in {:.2}s",
-            poll_duration.as_secs_f64()
+            "Polling cycle completed in {duration:.2}s - processed {user_count} users",
+            duration = poll_duration.as_secs_f64(),
+            user_count = users_to_poll.len()
         );
+
+        // Log detailed status every 10 cycles (roughly every hour with 6min intervals)
+        let stats = state.stats.read().await;
+        if stats.total_polls % 10 == 0 {
+            let uptime = stats.start_time.elapsed();
+            let user_states = state.user_states.read().await;
+            let healthy_users = user_states
+                .values()
+                .filter(|u| u.consecutive_failures == 0)
+                .count();
+            let failing_users = user_states
+                .values()
+                .filter(|u| u.consecutive_failures > 0)
+                .count();
+
+            info!("=== Daemon Status Report ===");
+            info!("Uptime: {:.1} hours", uptime.as_secs_f64() / 3600.0);
+            info!(
+                "Total polls: {total_polls}, Success rate: {success_rate:.1}%",
+                total_polls = stats.total_polls,
+                success_rate = if stats.total_polls > 0 {
+                    (stats.successful_polls as f64 / stats.total_polls as f64) * 100.0
+                } else {
+                    0.0
+                }
+            );
+            info!(
+                "Tweets: {total_tweets_downloaded} downloaded, {total_tweets_posted} posted to Nostr",
+                total_tweets_downloaded = stats.total_tweets_downloaded,
+                total_tweets_posted = stats.total_tweets_posted
+            );
+            info!("Users: {healthy_users} healthy, {failing_users} failing");
+
+            // Log failing users for debugging
+            if failing_users > 0 {
+                for (username, state) in user_states.iter() {
+                    if state.consecutive_failures > 0 {
+                        warn!(
+                            "User @{username} has {failures} consecutive failures",
+                            username = username,
+                            failures = state.consecutive_failures
+                        );
+                    }
+                }
+            }
+            info!("=============================");
+        }
 
         // Short sleep before next cycle
         time::sleep(Duration::from_secs(5)).await;
@@ -515,14 +630,12 @@ fn spawn_stats_reporter(stats: Arc<RwLock<DaemonStats>>) -> tokio::task::JoinHan
             let minutes = (uptime.as_secs() % 3600) / 60;
 
             info!(
-                "📊 Stats | Uptime: {}h{}m | Polls: {} (✓{} ✗{}) | Downloaded: {} | Posted: {}",
-                hours,
-                minutes,
-                stats.total_polls,
-                stats.successful_polls,
-                stats.failed_polls,
-                stats.total_tweets_downloaded,
-                stats.total_tweets_posted
+                "📊 Stats | Uptime: {hours}h{minutes}m | Polls: {total_polls} (✓{successful_polls} ✗{failed_polls}) | Downloaded: {total_tweets_downloaded} | Posted: {total_tweets_posted}",
+                total_polls = stats.total_polls,
+                successful_polls = stats.successful_polls,
+                failed_polls = stats.failed_polls,
+                total_tweets_downloaded = stats.total_tweets_downloaded,
+                total_tweets_posted = stats.total_tweets_posted
             );
         }
     })
@@ -534,14 +647,29 @@ async fn print_final_stats(stats: &Arc<RwLock<DaemonStats>>) {
     let uptime = stats.start_time.elapsed();
 
     info!("=== Final Daemon Statistics ===");
-    info!("Uptime: {:.2} hours", uptime.as_secs_f64() / 3600.0);
-    info!("Total polls: {}", stats.total_polls);
-    info!("Successful polls: {}", stats.successful_polls);
-    info!("Failed polls: {}", stats.failed_polls);
-    info!("Total tweets downloaded: {}", stats.total_tweets_downloaded);
     info!(
-        "Total tweets posted to Nostr: {}",
-        stats.total_tweets_posted
+        "Uptime: {uptime:.2} hours",
+        uptime = uptime.as_secs_f64() / 3600.0
+    );
+    info!(
+        "Total polls: {total_polls}",
+        total_polls = stats.total_polls
+    );
+    info!(
+        "Successful polls: {successful_polls}",
+        successful_polls = stats.successful_polls
+    );
+    info!(
+        "Failed polls: {failed_polls}",
+        failed_polls = stats.failed_polls
+    );
+    info!(
+        "Total tweets downloaded: {total_tweets_downloaded}",
+        total_tweets_downloaded = stats.total_tweets_downloaded
+    );
+    info!(
+        "Total tweets posted to Nostr: {total_tweets_posted}",
+        total_tweets_posted = stats.total_tweets_posted
     );
     info!("===============================");
 }
@@ -599,30 +727,46 @@ pub async fn fetch_timeline_with_retry(
         {
             Ok(tweets) => Ok(tweets),
             Err(e) => {
-                let error_str = e.to_string();
-
-                // Check if it's a rate limit error
-                if error_str.contains("429") || error_str.contains("rate limit") {
-                    warn!("Rate limited when fetching @{username}, backing off");
-                    Err(backoff::Error::transient(e))
-                }
-                // Check if it's a network error
-                else if error_str.contains("network")
-                    || error_str.contains("connection")
-                    || error_str.contains("timeout")
-                {
-                    warn!("Network error when fetching @{username}, retrying");
-                    Err(backoff::Error::transient(e))
-                }
-                // User not found or other permanent errors
-                else if error_str.contains("404") || error_str.contains("not found") {
-                    error!("User @{username} not found");
-                    Err(backoff::Error::permanent(e))
-                }
-                // Unknown error - treat as permanent
-                else {
-                    error!("Permanent error fetching @{username}: {e}");
-                    Err(backoff::Error::permanent(e))
+                // Use proper error matching instead of string checking
+                if let Some(twitter_err) = e.downcast_ref::<TwitterError>() {
+                    match twitter_err {
+                        TwitterError::RateLimit { reset_time, remaining } => {
+                            warn!("Rate limited when fetching @{username}, backing off until {reset_time:?} (remaining: {remaining:?})");
+                            Err(backoff::Error::transient(e))
+                        }
+                        TwitterError::UserNotFound { username: user } => {
+                            error!("User @{user} not found");
+                            Err(backoff::Error::permanent(e))
+                        }
+                        TwitterError::TweetNotFound { tweet_id } => {
+                            debug!("Tweet {tweet_id} not found when fetching @{username}");
+                            Err(backoff::Error::permanent(e))
+                        }
+                        TwitterError::ApiError { status, message } => {
+                            // Treat 5xx errors as transient, others as permanent
+                            if *status >= 500 && *status < 600 {
+                                warn!("Server error when fetching @{username} (status {status}): {message}, retrying");
+                                Err(backoff::Error::transient(e))
+                            } else {
+                                error!("API error when fetching @{username} (status {status}): {message}");
+                                Err(backoff::Error::permanent(e))
+                            }
+                        }
+                        TwitterError::Other(_) => {
+                            error!("Other error fetching @{username}: {e}");
+                            Err(backoff::Error::permanent(e))
+                        }
+                    }
+                } else {
+                    // For non-Twitter errors, try to infer from error message as fallback
+                    let error_str = e.to_string().to_lowercase();
+                    if error_str.contains("network") || error_str.contains("connection") || error_str.contains("timeout") {
+                        warn!("Network error when fetching @{username}, retrying: {e}");
+                        Err(backoff::Error::transient(e))
+                    } else {
+                        error!("Unknown error fetching @{username}: {e}");
+                        Err(backoff::Error::permanent(e))
+                    }
                 }
             }
         }
