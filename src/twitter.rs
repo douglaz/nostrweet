@@ -26,10 +26,6 @@ pub enum TwitterError {
     #[error("Tweet not found: {tweet_id}")]
     TweetNotFound { tweet_id: String },
 
-    #[error("Network error: {message}")]
-    #[allow(dead_code)] // Placeholder for future network error handling
-    Network { message: String },
-
     #[error("API error (status {status}): {message}")]
     ApiError { status: u16, message: String },
 

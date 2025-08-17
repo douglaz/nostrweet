@@ -322,9 +322,6 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
                             TwitterError::TweetNotFound { tweet_id } => {
                                 debug!("Tweet {tweet_id} not found for @{username}");
                             }
-                            TwitterError::Network { message } => {
-                                warn!("Network error for @{username}: {message}");
-                            }
                             TwitterError::ApiError { status, message } => {
                                 warn!("API error for @{username} (status {status}): {message}");
                             }
@@ -744,10 +741,6 @@ pub async fn fetch_timeline_with_retry(
                         TwitterError::TweetNotFound { tweet_id } => {
                             debug!("Tweet {tweet_id} not found when fetching @{username}");
                             Err(backoff::Error::permanent(e))
-                        }
-                        TwitterError::Network { message } => {
-                            warn!("Network error when fetching @{username}: {message}, retrying");
-                            Err(backoff::Error::transient(e))
                         }
                         TwitterError::ApiError { status, message } => {
                             // Treat 5xx errors as transient, others as permanent
