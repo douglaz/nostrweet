@@ -116,7 +116,7 @@ impl RateLimiter {
                 let wait_until = oldest + self.window_duration;
                 let wait_duration = wait_until.saturating_duration_since(Instant::now());
                 if wait_duration > Duration::ZERO {
-                    info!("Rate limit reached, waiting {:?}", wait_duration);
+                    info!("Rate limit reached, waiting {wait_duration:?}");
                     time::sleep(wait_duration).await;
                 }
             }

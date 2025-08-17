@@ -468,8 +468,9 @@ impl TwitterClient {
                                     );
                                     // Log author info for debugging
                                     debug!(
-                                        "Author data: id={:?}, author={:?}",
-                                        referenced_tweet.author_id, referenced_tweet.author
+                                        "Author data: id={author_id:?}, author={author:?}",
+                                        author_id = referenced_tweet.author_id,
+                                        author = referenced_tweet.author
                                     );
                                 }
 

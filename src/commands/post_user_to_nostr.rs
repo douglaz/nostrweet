@@ -286,16 +286,16 @@ pub async fn execute_with_options(
     {
         info!("Applied filters:");
         if let Some(since) = &options.since_date {
-            info!("  - Since date: {since}", since = since);
+            info!("  - Since date: {since}");
         }
         if let Some(until) = &options.until_date {
-            info!("  - Until date: {until}", until = until);
+            info!("  - Until date: {until}");
         }
         if let Some(keywords) = &options.filter_keywords {
-            info!("  - Required keywords: {:?}", keywords);
+            info!("  - Required keywords: {keywords:?}");
         }
         if let Some(keywords) = &options.exclude_keywords {
-            info!("  - Excluded keywords: {:?}", keywords);
+            info!("  - Excluded keywords: {keywords:?}");
         }
     }
 

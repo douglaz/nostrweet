@@ -342,7 +342,7 @@ pub async fn upload_media_to_blossom(
                             } else {
                                 Duration::from_millis(RETRY_DELAY_MS)
                             };
-                            warn!("Waiting {:?} before retry", wait_dur);
+                            warn!("Waiting {wait_dur:?} before retry");
                             sleep(wait_dur).await;
                             continue;
                         } else {
