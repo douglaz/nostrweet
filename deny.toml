@@ -23,6 +23,12 @@ ignore = [
     # instant is unmaintained but only used by backoff crate for tokio feature
     # This is not a security vulnerability, just an unmaintained crate
     "RUSTSEC-2024-0384",
+    # backoff is unmaintained but still works fine for our use case
+    # We can consider migrating to backon in the future
+    "RUSTSEC-2025-0012",
+    # dotenv is unmaintained but we're only using it for dev environments
+    # Consider migrating to dotenvy in the future
+    "RUSTSEC-2021-0141",
 ]
 
 [licenses]
@@ -39,6 +45,8 @@ allow = [
     "ISC",
     "CC0-1.0",
     "Unlicense",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
 ]
 
 # Exceptions for specific crates
