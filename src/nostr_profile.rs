@@ -4,7 +4,44 @@ use std::collections::HashSet;
 use std::path::Path;
 use tracing::{debug, info};
 
-use crate::{keys, storage};
+use crate::{keys, storage, twitter};
+
+/// Generate the profile disclaimer text for a given username
+fn get_profile_disclaimer(username: &str) -> String {
+    format!(
+        "\n\nThis account is a mirror of https://x.com/{username}\n\nMirror created using nostrweet: https://github.com/douglaz/nostrweet"
+    )
+}
+
+/// Build Nostr metadata from a Twitter user
+pub fn build_nostr_metadata_from_user(user: &twitter::User, username: &str) -> Metadata {
+    let mut metadata = Metadata::new();
+
+    if let Some(name) = &user.name {
+        metadata = metadata.name(name);
+    }
+
+    let disclaimer = get_profile_disclaimer(username);
+    let about = match &user.description {
+        Some(d) => format!("{d}{disclaimer}"),
+        None => disclaimer,
+    };
+    metadata = metadata.about(&about);
+
+    if let Some(profile_image_url) = &user.profile_image_url {
+        if let Ok(url) = Url::parse(profile_image_url) {
+            metadata = metadata.picture(url);
+        }
+    }
+
+    if let Some(url_str) = &user.url {
+        if let Ok(url) = Url::parse(url_str) {
+            metadata = metadata.website(url);
+        }
+    }
+
+    metadata
+}
 
 /// Posts a Twitter user profile to Nostr as metadata
 async fn post_single_profile(
@@ -30,30 +67,8 @@ async fn post_single_profile(
     // Get Nostr keys for this user
     let user_keys = keys::get_keys_for_tweet(&user.id)?;
 
-    // Create metadata
-    let mut metadata = Metadata::new();
-    if let Some(name) = user.name {
-        metadata = metadata.name(name);
-    }
-
-    let disclaimer = format!("\n\nThis account is a mirror of https://x.com/{username}");
-    let about = match user.description {
-        Some(d) => format!("{d}{disclaimer}"),
-        None => disclaimer,
-    };
-    metadata = metadata.about(&about);
-
-    if let Some(profile_image_url) = user.profile_image_url {
-        if let Ok(url) = Url::parse(&profile_image_url) {
-            metadata = metadata.picture(url);
-        }
-    }
-
-    if let Some(url) = user.url {
-        if let Ok(url) = Url::parse(&url) {
-            metadata = metadata.website(url);
-        }
-    }
+    // Create metadata using the shared function
+    let metadata = build_nostr_metadata_from_user(&user, username);
 
     // Build the event
     let event = EventBuilder::metadata(&metadata)
