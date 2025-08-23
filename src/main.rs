@@ -184,7 +184,7 @@ enum Commands {
         /// Nostr relay addresses to post to (comma-separated)
         #[arg(
             short,
-            long,
+            long = "relay",
             required = true,
             value_delimiter = ',',
             env = "NOSTRWEET_RELAYS"
@@ -225,6 +225,50 @@ enum Commands {
         /// Seconds between polling cycles
         #[arg(short, long, default_value = "300")]
         poll_interval: u64,
+    },
+
+    /// Utility commands for Nostr operations
+    Utils {
+        #[command(subcommand)]
+        command: UtilsCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum UtilsCommands {
+    /// Query events from Nostr relays
+    QueryEvents {
+        /// Nostr relay addresses to query from
+        #[arg(short, long = "relay", required = true, action = clap::ArgAction::Append)]
+        relays: Vec<String>,
+
+        /// Filter by event kind (e.g., 0 for metadata, 1 for text notes)
+        #[arg(short, long)]
+        kind: Option<u32>,
+
+        /// Filter by author public key (hex or npub format)
+        #[arg(short, long)]
+        author: Option<String>,
+
+        /// Maximum number of events to retrieve
+        #[arg(short, long, default_value = "10")]
+        limit: usize,
+
+        /// Filter events newer than this Unix timestamp
+        #[arg(long)]
+        since: Option<u64>,
+
+        /// Filter events older than this Unix timestamp  
+        #[arg(long)]
+        until: Option<u64>,
+
+        /// Output format (json or pretty)
+        #[arg(short = 'f', long, default_value = "pretty")]
+        format: String,
+
+        /// Save output to file
+        #[arg(long)]
+        output: Option<String>,
     },
 }
 
@@ -356,6 +400,23 @@ async fn main() -> Result<()> {
             commands::daemon::execute(users, relays, blossom_servers, poll_interval, &output_dir)
                 .await?
         }
+        Commands::Utils { command } => match command {
+            UtilsCommands::QueryEvents {
+                relays,
+                kind,
+                author,
+                limit,
+                since,
+                until,
+                format,
+                output,
+            } => {
+                commands::utils::query_events(
+                    relays, kind, author, limit, since, until, format, output,
+                )
+                .await?
+            }
+        },
     }
 
     Ok(())

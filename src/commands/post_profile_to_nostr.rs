@@ -1,10 +1,10 @@
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use nostr_sdk::{prelude::*, Metadata};
+use nostr_sdk::prelude::*;
 use tracing::{debug, info};
 
-use crate::{keys, nostr, storage};
+use crate::{keys, nostr, nostr_profile, storage};
 
 pub async fn execute(username: &str, relays: &[String], output_dir: &Path) -> Result<()> {
     info!(
@@ -38,27 +38,8 @@ pub async fn execute(username: &str, relays: &[String], output_dir: &Path) -> Re
     // Initialize Nostr client
     let client = nostr::initialize_nostr_client(&keys, relays).await?;
 
-    // Create metadata
-    let mut metadata = Metadata::new();
-    if let Some(name) = user.name {
-        metadata = metadata.name(name);
-    }
-    let disclaimer = format!("\n\nThis account is a mirror of https://x.com/{username}");
-    let about = match user.description {
-        Some(d) => format!("{d}{disclaimer}"),
-        None => disclaimer,
-    };
-    metadata = metadata.about(&about);
-    if let Some(profile_image_url) = user.profile_image_url {
-        if let Ok(url) = Url::parse(&profile_image_url) {
-            metadata = metadata.picture(url);
-        }
-    }
-    if let Some(url) = user.url {
-        if let Ok(url) = Url::parse(&url) {
-            metadata = metadata.website(url);
-        }
-    }
+    // Create metadata using the shared function
+    let metadata = nostr_profile::build_nostr_metadata_from_user(&user, username);
 
     // Build the event
     let event = EventBuilder::metadata(&metadata)
