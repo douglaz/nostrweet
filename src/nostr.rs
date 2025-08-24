@@ -1607,6 +1607,7 @@ pub async fn update_relay_list(client: &Client, keys: &Keys, relays: &[String]) 
 mod tests {
     use super::*;
     use crate::twitter::{Entities, NoteTweet, ReferencedTweet, Tweet, UrlEntity, User};
+    use pretty_assertions::assert_eq;
 
     fn create_test_tweet() -> Tweet {
         Tweet {
@@ -1837,11 +1838,9 @@ mod tests {
 
         let content = format_tweet_as_nostr_content(&tweet, &[]);
 
-        // Check that HTML entities are decoded
-        assert!(content.contains("This tweet has > and < and & symbols"));
-        assert!(!content.contains("&gt;"));
-        assert!(!content.contains("&lt;"));
-        assert!(!content.contains("&amp;"));
+        let expected = "🐦 @testuser: This tweet has > and < and & symbols\n\n\nOriginal tweet: https://twitter.com/i/status/123456789";
+
+        pretty_assertions::assert_eq!(content, expected);
     }
 
     #[test]
@@ -1849,10 +1848,9 @@ mod tests {
         let tweet = create_test_tweet();
         let content = format_tweet_as_nostr_content(&tweet, &[]);
 
-        assert!(content.contains("🐦 @testuser:"));
-        assert!(content.contains("This is a test tweet with a link"));
-        assert!(content.contains("[example.com/article](https://example.com/article)"));
-        assert!(!content.contains("https://t.co/abc123")); // Should be expanded
+        let expected = "🐦 @testuser: This is a test tweet with a link [example.com/article](https://example.com/article)\n\n\nOriginal tweet: https://twitter.com/i/status/123456789";
+
+        pretty_assertions::assert_eq!(content, expected);
     }
 
     #[test]
@@ -1864,8 +1862,9 @@ mod tests {
         ];
         let content = format_tweet_as_nostr_content(&tweet, &media_urls);
 
-        assert!(content.contains("https://media.example.com/image1.jpg"));
-        assert!(content.contains("https://media.example.com/video1.mp4"));
+        let expected = "🐦 @testuser: This is a test tweet with a link [example.com/article](https://example.com/article)\n\nhttps://media.example.com/image1.jpg\nhttps://media.example.com/video1.mp4\n\nOriginal tweet: https://twitter.com/i/status/123456789";
+
+        pretty_assertions::assert_eq!(content, expected);
     }
 
     #[test]
@@ -1899,9 +1898,9 @@ mod tests {
 
         let content = format_tweet_as_nostr_content(&tweet, &[]);
 
-        assert!(content.contains("🔁 @testuser retweeted @originaluser:"));
-        assert!(content.contains("Original tweet content"));
-        assert!(content.contains("https://twitter.com/i/status/111111111"));
+        let expected = "🔁 @testuser retweeted @originaluser:\nOriginal tweet content\nhttps://twitter.com/i/status/111111111\n\nOriginal tweet: https://twitter.com/i/status/123456789";
+
+        pretty_assertions::assert_eq!(content, expected);
     }
 
     #[test]
@@ -1972,25 +1971,28 @@ mod tests {
 
         let content = format_tweet_as_nostr_content(&tweet, &[]);
 
-        assert!(content.contains("🐦 @testuser:"));
-        assert!(content.contains("Check out this tweet!"));
-        assert!(content.contains("💬 Quote of @quotedauthor:"));
-        assert!(content.contains("The quoted tweet content"));
+        let expected = "🐦 @testuser: Check out this tweet!\n\n💬 Quote of @quotedauthor:\nThe quoted tweet content\nhttps://twitter.com/i/status/333333333\n\nOriginal tweet: https://twitter.com/i/status/123456789";
+
+        pretty_assertions::assert_eq!(content, expected);
     }
 
     #[test]
     fn test_format_note_tweet() {
         let mut tweet = create_test_tweet();
         tweet.text = "This is a preview...".to_string();
+        let long_text =
+            "This is a very long tweet that exceeds the normal character limit. ".repeat(10);
         tweet.note_tweet = Some(NoteTweet {
-            text: "This is a very long tweet that exceeds the normal character limit. ".repeat(10),
+            text: long_text.clone(),
         });
 
         let content = format_tweet_as_nostr_content(&tweet, &[]);
 
-        // Should use the full note_tweet text, not the truncated preview
-        assert!(content.contains("This is a very long tweet"));
-        assert!(!content.contains("This is a preview"));
+        let expected = format!(
+            "🐦 @testuser: {long_text}\n\n\nOriginal tweet: https://twitter.com/i/status/123456789"
+        );
+
+        pretty_assertions::assert_eq!(content, expected);
     }
 
     #[test]
