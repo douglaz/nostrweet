@@ -8,12 +8,15 @@ use tracing::{error, info, warn};
 use crate::relay::NostrRelay;
 use crate::tests;
 
+/// Type alias for test function
+type TestFn =
+    fn(&TestContext) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + '_>>;
+
 /// Test metadata
 pub struct TestInfo {
     pub name: String,
     pub description: String,
-    pub run_fn:
-        fn(&TestContext) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + '_>>,
+    pub run_fn: TestFn,
 }
 
 /// Context provided to each test
@@ -51,12 +54,14 @@ impl TestContext {
     }
 
     /// Check if a file exists in the output directory
+    #[allow(dead_code)]
     pub fn file_exists(&self, pattern: &str) -> bool {
         let pattern_path = self.output_dir.join(pattern);
         std::fs::metadata(pattern_path).is_ok()
     }
 
     /// Read a JSON file from the output directory
+    #[allow(dead_code)]
     pub fn read_json<T: serde::de::DeserializeOwned>(&self, filename: &str) -> Result<T> {
         let path = self.output_dir.join(filename);
         let contents = std::fs::read_to_string(&path)
@@ -107,7 +112,7 @@ pub async fn run_all_tests(relay_port: u16, keep_relay: bool) -> Result<()> {
         info!("Running test: {} - {}", test.name, test.description);
 
         // Start new relay for each test if not keeping
-        let mut test_relay = if keep_relay {
+        let test_relay = if keep_relay {
             None
         } else {
             Some(NostrRelay::start(relay_port).await?)
@@ -293,6 +298,3 @@ fn find_nostrweet_binary() -> Result<PathBuf> {
 
     bail!("Could not find nostrweet binary. Please build it first with 'cargo build'");
 }
-
-// Add glob dependency
-use glob::glob;

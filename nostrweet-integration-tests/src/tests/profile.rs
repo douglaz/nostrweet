@@ -69,11 +69,11 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         serde_json::from_str(&event.content).context("Failed to parse metadata JSON")?;
 
     // Verify expected fields
-    if !metadata.get("name").is_some() {
+    if metadata.get("name").is_none() {
         anyhow::bail!("Metadata missing 'name' field");
     }
 
-    if !metadata.get("about").is_some() {
+    if metadata.get("about").is_none() {
         anyhow::bail!("Metadata missing 'about' field");
     }
 

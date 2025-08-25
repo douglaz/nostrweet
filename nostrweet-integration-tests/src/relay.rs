@@ -10,7 +10,9 @@ use tracing::{debug, info, warn};
 pub struct NostrRelay {
     process: Option<Child>,
     port: u16,
+    #[allow(dead_code)]
     data_dir: TempDir,
+    #[allow(dead_code)]
     config_path: PathBuf,
 }
 
@@ -57,7 +59,7 @@ subscriptions_per_min = 100
         debug!("Starting relay with command: {:?}", cmd);
         let process = cmd.spawn().context("Failed to start nostr-rs-relay")?;
 
-        let mut relay = Self {
+        let relay = Self {
             process: Some(process),
             port,
             data_dir,
@@ -122,6 +124,7 @@ subscriptions_per_min = 100
     }
 
     /// Check if the relay is still running
+    #[allow(dead_code)]
     pub async fn is_running(&mut self) -> bool {
         if let Some(ref mut process) = self.process {
             match process.try_wait() {
@@ -135,11 +138,13 @@ subscriptions_per_min = 100
     }
 
     /// Get the data directory path
+    #[allow(dead_code)]
     pub fn data_dir(&self) -> &std::path::Path {
         self.data_dir.path()
     }
 
     /// Get the config file path
+    #[allow(dead_code)]
     pub fn config_path(&self) -> &std::path::Path {
         &self.config_path
     }
