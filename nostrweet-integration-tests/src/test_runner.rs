@@ -69,6 +69,12 @@ impl TestContext {
         serde_json::from_str(&contents)
             .with_context(|| format!("Failed to parse JSON from {}", path.display()))
     }
+
+    /// Run a nostrweet command and return its output
+    /// This is an alias for run_nostrweet for clarity when output is needed
+    pub async fn run_nostrweet_with_output(&self, args: &[&str]) -> Result<String> {
+        self.run_nostrweet(args).await
+    }
 }
 
 /// Get all available tests
@@ -93,6 +99,26 @@ fn get_tests() -> Vec<TestInfo> {
             name: "nostr_post".to_string(),
             description: "Test posting to Nostr relay".to_string(),
             run_fn: |ctx| Box::pin(tests::nostr_post::run(ctx)),
+        },
+        TestInfo {
+            name: "user_tweets".to_string(),
+            description: "Test fetching multiple tweets from user timeline".to_string(),
+            run_fn: |ctx| Box::pin(tests::user_tweets::run(ctx)),
+        },
+        TestInfo {
+            name: "batch_post".to_string(),
+            description: "Test batch posting user tweets to Nostr".to_string(),
+            run_fn: |ctx| Box::pin(tests::batch_post::run(ctx)),
+        },
+        TestInfo {
+            name: "cache_management".to_string(),
+            description: "Test cache listing and clearing commands".to_string(),
+            run_fn: |ctx| Box::pin(tests::cache_management::run(ctx)),
+        },
+        TestInfo {
+            name: "utils_query".to_string(),
+            description: "Test querying events from Nostr relay".to_string(),
+            run_fn: |ctx| Box::pin(tests::utils_query::run(ctx)),
         },
     ]
 }
