@@ -1,0 +1,83 @@
+use anyhow::{Context, Result};
+use nostr_sdk::prelude::*;
+use nostr_sdk::Event;
+use tracing::{debug, info};
+
+use crate::test_runner::TestContext;
+
+/// Test fetching a profile and posting it to Nostr
+pub async fn run(ctx: &TestContext) -> Result<()> {
+    info!("Testing profile fetch and post functionality");
+
+    // Username to test with
+    let username = "jack";
+
+    // Step 1: Fetch the profile
+    info!("Fetching profile for @{username}");
+    ctx.run_nostrweet(&["fetch-profile", username])
+        .await
+        .context("Failed to fetch profile")?;
+
+    // Step 2: Verify profile was downloaded
+    let profile_file = ctx.output_dir.join(format!("{username}.json"));
+    if !profile_file.exists() {
+        anyhow::bail!("Profile file not found after download");
+    }
+
+    info!("Profile downloaded successfully");
+
+    // Step 3: Post profile to Nostr
+    info!("Posting profile to Nostr");
+    ctx.run_nostrweet(&[
+        "post-profile-to-nostr",
+        "--force", // Force posting even if already posted
+        username,
+    ])
+    .await
+    .context("Failed to post profile to Nostr")?;
+
+    // Step 4: Verify metadata event on relay
+    info!("Verifying metadata event on Nostr relay");
+
+    // Create client to query relay
+    let keys = Keys::parse(&ctx.private_key)?;
+    let client = Client::new(keys.clone());
+    client.add_relay(&ctx.relay_url).await?;
+    client.connect().await;
+
+    // Wait a moment for event to propagate
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // Query for metadata events from our pubkey
+    let filter = Filter::new().author(keys.public_key()).kind(Kind::Metadata);
+
+    let events = client
+        .fetch_events(filter, std::time::Duration::from_secs(5))
+        .await?;
+
+    let event_vec: Vec<Event> = events.into_iter().collect();
+    if event_vec.is_empty() {
+        anyhow::bail!("No metadata events found on relay after posting");
+    }
+
+    // Verify event content
+    let event = &event_vec[0];
+    debug!("Metadata content: {}", event.content);
+
+    // Parse metadata
+    let metadata: serde_json::Value =
+        serde_json::from_str(&event.content).context("Failed to parse metadata JSON")?;
+
+    // Verify expected fields
+    if !metadata.get("name").is_some() {
+        anyhow::bail!("Metadata missing 'name' field");
+    }
+
+    if !metadata.get("about").is_some() {
+        anyhow::bail!("Metadata missing 'about' field");
+    }
+
+    info!("✅ Profile successfully fetched and posted to Nostr");
+
+    Ok(())
+}

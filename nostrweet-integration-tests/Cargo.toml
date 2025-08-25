@@ -1,0 +1,28 @@
+[package]
+name = "nostrweet-integration-tests"
+version.workspace = true
+edition.workspace = true
+description = "Integration tests for nostrweet"
+
+[[bin]]
+name = "nostrweet-integration-tests"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+nostr-sdk.workspace = true
+hex.workspace = true
+
+# Additional dependencies for integration tests
+toml = "0.8"
+reqwest = { version = "0.12", features = ["json"] }
+uuid = { version = "1.6", features = ["v4"] }
+glob = "0.3"
+rand = "0.8"
