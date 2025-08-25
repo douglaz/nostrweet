@@ -66,9 +66,9 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     // Check that events contain expected content
     for (i, event) in event_vec.iter().enumerate() {
         debug!(
-            "Event {}: {}",
-            i + 1,
-            &event.content[..100.min(event.content.len())]
+            "Event {index}: {content}",
+            index = i + 1,
+            content = &event.content[..100.min(event.content.len())]
         );
 
         // Verify signature

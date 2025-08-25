@@ -76,9 +76,7 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
 
     if count_after >= count_before {
         anyhow::bail!(
-            "Cache was not cleared properly. Files before: {}, after: {}",
-            count_before,
-            count_after
+            "Cache was not cleared properly. Files before: {count_before}, after: {count_after}"
         );
     }
 
