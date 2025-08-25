@@ -72,10 +72,13 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
 
     // Verify event content and structure
     let event = &event_vec[0];
-    debug!("Event content: {}", event.content);
-    debug!("Event ID: {}", event.id);
-    debug!("Event pubkey: {}", event.pubkey);
-    debug!("Event created_at: {}", event.created_at);
+    debug!("Event content: {content}", content = event.content);
+    debug!("Event ID: {id}", id = event.id);
+    debug!("Event pubkey: {pubkey}", pubkey = event.pubkey);
+    debug!(
+        "Event created_at: {created_at}",
+        created_at = event.created_at
+    );
 
     // Comprehensive verification
     info!("Performing comprehensive event verification...");
@@ -96,7 +99,7 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     let now = Timestamp::now();
     let event_age = now.as_u64().saturating_sub(event.created_at.as_u64());
     if event_age > 60 {
-        anyhow::bail!("Event timestamp is too old: {} seconds", event_age);
+        anyhow::bail!("Event timestamp is too old: {event_age} seconds");
     }
     info!("  ✓ Event timestamp is recent");
 

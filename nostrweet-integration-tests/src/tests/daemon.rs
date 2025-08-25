@@ -50,7 +50,10 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         anyhow::bail!("No events found after daemon run");
     }
 
-    info!("Found {} events posted by daemon", event_vec.len());
+    info!(
+        "Found {count} events posted by daemon",
+        count = event_vec.len()
+    );
 
     // Stop daemon
     info!("Stopping daemon");
@@ -76,7 +79,7 @@ async fn start_daemon(ctx: &TestContext, username: &str) -> Result<Child> {
         .arg("--verbose")
         .kill_on_drop(true);
 
-    debug!("Starting daemon with command: {:?}", cmd);
+    debug!("Starting daemon with command: {cmd:?}");
     let child = cmd.spawn().context("Failed to start daemon")?;
 
     Ok(child)
