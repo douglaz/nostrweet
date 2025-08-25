@@ -77,3 +77,27 @@ typos:
 # Update dependencies
 update:
     cargo update
+
+# Build integration tests
+build-integration-tests:
+    cargo build -p nostrweet-integration-tests
+
+# Run all integration tests
+integration-test: build
+    cd nostrweet-integration-tests && cargo run -- run-all
+
+# Run a specific integration test
+integration-test-single TEST: build
+    cd nostrweet-integration-tests && cargo run -- run --test {{TEST}}
+
+# Run integration tests with custom relay port
+integration-test-port PORT: build
+    cd nostrweet-integration-tests && cargo run -- --relay-port {{PORT}} run-all
+
+# Run integration tests keeping relay running
+integration-test-debug: build
+    cd nostrweet-integration-tests && cargo run -- --keep-relay --verbose run-all
+
+# Clean up integration test artifacts
+integration-cleanup:
+    cd nostrweet-integration-tests && cargo run -- cleanup
