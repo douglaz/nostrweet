@@ -62,7 +62,7 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
 
     // Verify event content
     let event = &event_vec[0];
-    debug!("Metadata content: {}", event.content);
+    debug!("Metadata content: {content}", content = event.content);
 
     // Parse metadata
     let metadata: serde_json::Value =

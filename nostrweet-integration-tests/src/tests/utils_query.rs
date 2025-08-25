@@ -44,7 +44,10 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         anyhow::bail!("query-events returned empty output");
     }
 
-    debug!("Basic query output length: {} bytes", output.len());
+    debug!(
+        "Basic query output length: {length} bytes",
+        length = output.len()
+    );
 
     // Step 3: Test query with kind filter for metadata
     info!("Testing query-events with kind filter (metadata)");
@@ -61,8 +64,8 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         .context("Failed to query metadata events")?;
 
     debug!(
-        "Metadata query output: {}",
-        &metadata_output[..200.min(metadata_output.len())]
+        "Metadata query output: {output}",
+        output = &metadata_output[..200.min(metadata_output.len())]
     );
 
     // Step 4: Test query with kind filter for text notes
@@ -80,8 +83,8 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         .context("Failed to query text note events")?;
 
     debug!(
-        "Text note query output: {}",
-        &text_output[..200.min(text_output.len())]
+        "Text note query output: {output}",
+        output = &text_output[..200.min(text_output.len())]
     );
 
     // Step 5: Test JSON format output
@@ -115,7 +118,7 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         anyhow::bail!("No events found for our test author");
     }
 
-    debug!("Found events for author {}", &npub[..20]);
+    debug!("Found events for author {author}", author = &npub[..20]);
 
     // Step 7: Test time range filters
     info!("Testing query-events with time range filters");
@@ -141,7 +144,10 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         .await
         .context("Failed to query events with time range")?;
 
-    debug!("Time range query returned {} bytes", time_output.len());
+    debug!(
+        "Time range query returned {length} bytes",
+        length = time_output.len()
+    );
 
     // Step 8: Test output to file
     info!("Testing query-events with file output");

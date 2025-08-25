@@ -52,14 +52,15 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         anyhow::bail!("No events found on relay after batch posting");
     }
 
-    info!("Found {} events after batch posting", event_vec.len());
+    info!(
+        "Found {count} events after batch posting",
+        count = event_vec.len()
+    );
 
     // Verify we have multiple events (batch posted)
     if event_vec.len() < 2 {
-        anyhow::bail!(
-            "Expected multiple events from batch posting, found only {}",
-            event_vec.len()
-        );
+        let count = event_vec.len();
+        anyhow::bail!("Expected multiple events from batch posting, found only {count}");
     }
 
     // Check that events contain expected content
@@ -71,9 +72,9 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         );
 
         // Verify signature
-        event
-            .verify()
-            .context(format!("Event {} signature verification failed", i + 1))?;
+        event.verify().with_context(|| {
+            format!("Event {index} signature verification failed", index = i + 1)
+        })?;
     }
 
     // Step 4: Test with skip-profiles flag

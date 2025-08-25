@@ -75,7 +75,7 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
 
     // Verify event content
     let event = &event_vec[0];
-    debug!("Posted event content: {}", event.content);
+    debug!("Posted event content: {content}", content = event.content);
 
     // Check for expected content
     if !event.content.contains("This is a test tweet") {
@@ -142,7 +142,10 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         .find(|e| e.content.contains("This is a reply"))
         .context("Reply event not found")?;
 
-    debug!("Reply event content: {}", reply_event.content);
+    debug!(
+        "Reply event content: {content}",
+        content = reply_event.content
+    );
 
     // Check for reply marker
     if !reply_event.content.contains("replied to") {

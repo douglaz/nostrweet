@@ -33,7 +33,10 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         anyhow::bail!("No tweet files found after user-tweets command");
     }
 
-    info!("Found {} tweet files for @{username}", tweet_files.len());
+    info!(
+        "Found {count} tweet files for @{username}",
+        count = tweet_files.len()
+    );
 
     // Test 2: Fetch tweets with days filter (if Twitter API allows)
     info!("Testing user-tweets with --days parameter");

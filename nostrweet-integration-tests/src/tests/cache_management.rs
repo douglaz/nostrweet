@@ -30,7 +30,10 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         anyhow::bail!("list-tweets returned empty output");
     }
 
-    debug!("list-tweets output length: {} bytes", output.len());
+    debug!(
+        "list-tweets output length: {length} bytes",
+        length = output.len()
+    );
 
     // Check that output mentions cached tweets
     if !output.contains("tweet") && !output.contains("Tweet") {
