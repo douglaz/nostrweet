@@ -9,8 +9,8 @@ use crate::test_runner::TestContext;
 pub async fn run(ctx: &TestContext) -> Result<()> {
     info!("Testing profile fetch and post functionality");
 
-    // Username to test with
-    let username = "jack";
+    // Username to test with (repository owner)
+    let username = "douglaz";
 
     // Step 1: Fetch the profile
     info!("Fetching profile for @{username}");

@@ -12,8 +12,8 @@ use crate::test_runner::TestContext;
 pub async fn run(ctx: &TestContext) -> Result<()> {
     info!("Testing daemon mode functionality");
 
-    // Username to monitor
-    let username = "jack";
+    // Username to monitor (repository owner)
+    let username = "douglaz";
 
     // First, fetch some tweets for the daemon to post
     info!("Pre-fetching tweets for daemon test");

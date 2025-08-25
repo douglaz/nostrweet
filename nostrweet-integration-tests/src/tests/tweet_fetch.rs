@@ -5,18 +5,19 @@ use tracing::{debug, info};
 
 use crate::test_runner::TestContext;
 
-/// Test fetching a tweet and posting it to Nostr
+/// Test fetching a tweet and posting it to Nostr - Full End-to-End Test
 pub async fn run(ctx: &TestContext) -> Result<()> {
-    info!("Testing tweet fetch and post functionality");
+    info!("Testing complete end-to-end flow: Twitter -> nostrweet -> Nostr relay");
 
-    // Tweet ID to test with (Twitter's first tweet)
+    // Tweet ID to test with (Twitter's first tweet - stable and historical)
+    // This tweet by @jack: "just setting up my twttr"
     let tweet_id = "20";
 
-    // Step 1: Fetch the tweet
-    info!("Fetching tweet {tweet_id}");
+    // Step 1: Fetch the tweet from Twitter API
+    info!("Step 1: Fetching tweet {tweet_id} from Twitter API");
     ctx.run_nostrweet(&["fetch-tweet", tweet_id])
         .await
-        .context("Failed to fetch tweet")?;
+        .context("Failed to fetch tweet from Twitter API")?;
 
     // Step 2: Verify tweet was downloaded
     let tweet_files: Vec<_> = std::fs::read_dir(&ctx.output_dir)?
@@ -33,20 +34,20 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         anyhow::bail!("Tweet file not found after download");
     }
 
-    info!("Tweet downloaded successfully");
+    info!("Tweet downloaded successfully to local filesystem");
 
-    // Step 3: Post tweet to Nostr
-    info!("Posting tweet to Nostr");
+    // Step 3: Post tweet to Nostr relay
+    info!("Step 2: Posting tweet to Nostr relay");
     ctx.run_nostrweet(&[
         "post-tweet-to-nostr",
         "--force", // Force posting even if already posted
         tweet_id,
     ])
     .await
-    .context("Failed to post tweet to Nostr")?;
+    .context("Failed to post tweet to Nostr relay")?;
 
-    // Step 4: Verify event on relay
-    info!("Verifying event on Nostr relay");
+    // Step 4: Verify event on Nostr relay
+    info!("Step 3: Verifying event on Nostr relay");
 
     // Create client to query relay
     let keys = Keys::parse(&ctx.private_key)?;
@@ -69,16 +70,49 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         anyhow::bail!("No events found on relay after posting");
     }
 
-    // Verify event content
+    // Verify event content and structure
     let event = &event_vec[0];
     debug!("Event content: {}", event.content);
+    debug!("Event ID: {}", event.id);
+    debug!("Event pubkey: {}", event.pubkey);
+    debug!("Event created_at: {}", event.created_at);
 
-    // Check for expected content (Twitter's first tweet)
+    // Comprehensive verification
+    info!("Performing comprehensive event verification...");
+
+    // 1. Check content matches expected tweet
     if !event.content.contains("just setting up my twttr") {
         anyhow::bail!("Event content does not match expected tweet");
     }
+    info!("  ✓ Content matches expected tweet");
 
-    info!("✅ Tweet successfully fetched and posted to Nostr");
+    // 2. Verify event signature
+    event
+        .verify()
+        .context("Event signature verification failed")?;
+    info!("  ✓ Event signature is valid");
+
+    // 3. Check timestamp is reasonable (within last minute)
+    let now = Timestamp::now();
+    let event_age = now.as_u64().saturating_sub(event.created_at.as_u64());
+    if event_age > 60 {
+        anyhow::bail!("Event timestamp is too old: {} seconds", event_age);
+    }
+    info!("  ✓ Event timestamp is recent");
+
+    // 4. Verify it's from our test key
+    if event.pubkey != keys.public_key() {
+        anyhow::bail!("Event pubkey doesn't match our test key");
+    }
+    info!("  ✓ Event is from correct pubkey");
+
+    // 5. Check for Twitter link in content
+    if !event.content.contains("twitter.com") && !event.content.contains("x.com") {
+        debug!("Note: No Twitter/X link found in content (might be expected for old tweets)");
+    }
+
+    info!("✅ FULL END-TO-END TEST PASSED!");
+    info!("   Twitter API → nostrweet → Nostr relay → Verification complete");
 
     Ok(())
 }
