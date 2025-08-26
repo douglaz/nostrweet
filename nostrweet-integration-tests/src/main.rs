@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+mod mock_data;
 mod relay;
 mod test_runner;
 mod tests;

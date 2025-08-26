@@ -8,6 +8,7 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::{error, info, warn};
 
+use crate::mock_data;
 use crate::relay::NostrRelay;
 use crate::tests;
 
@@ -214,6 +215,13 @@ pub async fn run_all_tests(relay_port: u16, keep_relay: bool, twitter_token: &st
             twitter_token: twitter_token.to_string(),
         };
 
+        // In CI environment, create mock data to avoid Twitter API rate limits
+        if std::env::var("CI").is_ok() {
+            info!("Running in CI environment - creating mock tweet data");
+            mock_data::create_mock_tweets(&ctx.output_dir)
+                .context("Failed to create mock tweet data")?;
+        }
+
         // Run test
         let result = (test.run_fn)(&ctx).await;
 
@@ -289,6 +297,13 @@ pub async fn run_single_test(
         nostrweet_binary: find_nostrweet_binary()?,
         twitter_token: twitter_token.to_string(),
     };
+
+    // In CI environment, create mock data to avoid Twitter API rate limits
+    if std::env::var("CI").is_ok() {
+        info!("Running in CI environment - creating mock tweet data");
+        mock_data::create_mock_tweets(&ctx.output_dir)
+            .context("Failed to create mock tweet data")?;
+    }
 
     // Run test
     let result = (test.run_fn)(&ctx).await;
