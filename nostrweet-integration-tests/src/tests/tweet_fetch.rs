@@ -9,9 +9,9 @@ use crate::test_runner::TestContext;
 pub async fn run(ctx: &TestContext) -> Result<()> {
     info!("Testing complete end-to-end flow: Twitter -> nostrweet -> Nostr relay");
 
-    // Tweet ID to test with - using a more recent tweet that should be stable
-    // This is a well-known tweet that should always be available
-    let tweet_id = "1628832338187636737";
+    // Tweet ID to test with - using Twitter's official "Hello literally everyone" tweet
+    // This is a well-known tweet from @Twitter that should always be available
+    let tweet_id = "1453856044928933893";
 
     // Step 1: Fetch the tweet from Twitter API
     info!("Step 1: Fetching tweet {tweet_id} from Twitter API");
