@@ -38,7 +38,9 @@ impl TestContext {
         cmd.env("NOSTRWEET_OUTPUT_DIR", &self.output_dir)
             .env("NOSTRWEET_PRIVATE_KEY", &self.private_key)
             .env("NOSTRWEET_RELAYS", &self.relay_url)
-            .env("TWITTER_BEARER_TOKEN", &self.twitter_token);
+            .env("TWITTER_BEARER_TOKEN", &self.twitter_token)
+            // Use a test mnemonic for deterministic key derivation
+            .env("NOSTRWEET_MNEMONIC", "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about");
 
         // Add arguments
         for arg in args {
@@ -88,7 +90,9 @@ impl TestContext {
         cmd.env("NOSTRWEET_OUTPUT_DIR", &self.output_dir)
             .env("NOSTRWEET_PRIVATE_KEY", &self.private_key)
             .env("NOSTRWEET_RELAYS", &self.relay_url)
-            .env("TWITTER_BEARER_TOKEN", &self.twitter_token);
+            .env("TWITTER_BEARER_TOKEN", &self.twitter_token)
+            // Use a test mnemonic for deterministic key derivation
+            .env("NOSTRWEET_MNEMONIC", "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about");
 
         // Add arguments
         for arg in args {
