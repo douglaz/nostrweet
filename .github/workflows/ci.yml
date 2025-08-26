@@ -92,11 +92,8 @@ jobs:
 
       - name: Run integration tests
         run: |
-          # Skip if no Twitter token is available (e.g., on forks)
-          if [ -z "$TWITTER_BEARER_TOKEN" ]; then
-            echo "Skipping integration tests - no Twitter token available"
-            exit 0
-          fi
+          # The integration tests require TWITTER_BEARER_TOKEN to be set
+          # This will be passed via environment variable to the test CLI
           nix develop -c just integration-test
         continue-on-error: true  # Don't fail build on integration test failures initially
 
