@@ -23,9 +23,9 @@ pub fn create_mock_tweets(output_dir: &Path) -> Result<()> {
         "includes": null
     });
 
-    let filename1 = format!("20211029_000000_Twitter_1453856044928933893.json");
+    let filename1 = "20211029_000000_Twitter_1453856044928933893.json";
     fs::write(
-        output_dir.join(&filename1),
+        output_dir.join(filename1),
         serde_json::to_string_pretty(&tweet1)?,
     )?;
 
@@ -47,9 +47,9 @@ pub fn create_mock_tweets(output_dir: &Path) -> Result<()> {
         "includes": null
     });
 
-    let filename2 = format!("20240101_120000_douglaz_1000000000000000001.json");
+    let filename2 = "20240101_120000_douglaz_1000000000000000001.json";
     fs::write(
-        output_dir.join(&filename2),
+        output_dir.join(filename2),
         serde_json::to_string_pretty(&douglaz_tweet1)?,
     )?;
 
@@ -76,9 +76,9 @@ pub fn create_mock_tweets(output_dir: &Path) -> Result<()> {
         "includes": null
     });
 
-    let filename3 = format!("20240101_130000_douglaz_1000000000000000002.json");
+    let filename3 = "20240101_130000_douglaz_1000000000000000002.json";
     fs::write(
-        output_dir.join(&filename3),
+        output_dir.join(filename3),
         serde_json::to_string_pretty(&douglaz_tweet2)?,
     )?;
 
@@ -100,9 +100,9 @@ pub fn create_mock_tweets(output_dir: &Path) -> Result<()> {
         }
     });
 
-    let profile_filename = format!("20240101_000000_douglaz_profile.json");
+    let profile_filename = "20240101_000000_douglaz_profile.json";
     fs::write(
-        output_dir.join(&profile_filename),
+        output_dir.join(profile_filename),
         serde_json::to_string_pretty(&profile)?,
     )?;
 
