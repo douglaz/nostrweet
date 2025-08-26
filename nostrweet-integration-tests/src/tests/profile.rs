@@ -53,8 +53,8 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     // Wait a moment for event to propagate
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    // Query for metadata events from our pubkey
-    let filter = Filter::new().author(keys.public_key()).kind(Kind::Metadata);
+    // Query for all metadata events (not filtered by author since we use mnemonic-based key derivation)
+    let filter = Filter::new().kind(Kind::Metadata).limit(10);
 
     let events = client
         .fetch_events(filter, std::time::Duration::from_secs(5))

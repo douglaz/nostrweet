@@ -22,11 +22,11 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         .context("Failed to post profile")?;
 
     // Post a tweet (text note event)
-    ctx.run_nostrweet(&["fetch-tweet", "20"])
+    ctx.run_nostrweet(&["fetch-tweet", "1628832338187636737"])
         .await
         .context("Failed to fetch tweet")?;
 
-    ctx.run_nostrweet(&["post-tweet-to-nostr", "--force", "20"])
+    ctx.run_nostrweet(&["post-tweet-to-nostr", "--force", "1628832338187636737"])
         .await
         .context("Failed to post tweet")?;
 
