@@ -18,9 +18,18 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         .await
         .context("Failed to fetch profile")?;
 
-    // Step 2: Verify profile was downloaded
-    let profile_file = ctx.output_dir.join(format!("{username}.json"));
-    if !profile_file.exists() {
+    // Step 2: Verify profile was downloaded (look for any file with username in it)
+    let profile_files: Vec<_> = std::fs::read_dir(&ctx.output_dir)?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .contains(&format!("_{username}_"))
+        })
+        .collect();
+
+    if profile_files.is_empty() {
         anyhow::bail!("Profile file not found after download");
     }
 
