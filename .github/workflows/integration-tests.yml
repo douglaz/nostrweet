@@ -31,9 +31,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v9
 
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
-
       - name: Build nostrweet binary
         run: nix develop -c cargo build -p nostrweet
 
@@ -75,9 +72,6 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v9
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
 
       - name: Build binaries
         run: |
