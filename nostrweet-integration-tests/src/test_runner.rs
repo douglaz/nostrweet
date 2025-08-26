@@ -30,6 +30,7 @@ pub struct TestContext {
     pub private_key: String,
     pub nostrweet_binary: PathBuf,
     pub twitter_token: String,
+    pub mnemonic: String,
 }
 
 impl TestContext {
@@ -42,8 +43,7 @@ impl TestContext {
             .env("NOSTRWEET_PRIVATE_KEY", &self.private_key)
             .env("NOSTRWEET_RELAYS", &self.relay_url)
             .env("TWITTER_BEARER_TOKEN", &self.twitter_token)
-            // Use a test mnemonic for deterministic key derivation
-            .env("NOSTRWEET_MNEMONIC", "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about");
+            .env("NOSTRWEET_MNEMONIC", &self.mnemonic);
 
         // Add arguments
         for arg in args {
@@ -100,8 +100,7 @@ impl TestContext {
             .env("NOSTRWEET_PRIVATE_KEY", &self.private_key)
             .env("NOSTRWEET_RELAYS", &self.relay_url)
             .env("TWITTER_BEARER_TOKEN", &self.twitter_token)
-            // Use a test mnemonic for deterministic key derivation
-            .env("NOSTRWEET_MNEMONIC", "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about");
+            .env("NOSTRWEET_MNEMONIC", &self.mnemonic);
 
         // Add arguments
         for arg in args {
@@ -177,7 +176,12 @@ fn get_tests() -> Vec<TestInfo> {
 }
 
 /// Run all integration tests
-pub async fn run_all_tests(relay_port: u16, keep_relay: bool, twitter_token: &str) -> Result<()> {
+pub async fn run_all_tests(
+    relay_port: u16,
+    keep_relay: bool,
+    twitter_token: &str,
+    mnemonic: &str,
+) -> Result<()> {
     let tests = get_tests();
     let mut results = HashMap::new();
     let mut relay = None;
@@ -213,6 +217,7 @@ pub async fn run_all_tests(relay_port: u16, keep_relay: bool, twitter_token: &st
             private_key: hex::encode(rand::random::<[u8; 32]>()),
             nostrweet_binary: find_nostrweet_binary()?,
             twitter_token: twitter_token.to_string(),
+            mnemonic: mnemonic.to_string(),
         };
 
         // In CI environment, create mock data to avoid Twitter API rate limits
@@ -275,6 +280,7 @@ pub async fn run_single_test(
     relay_port: u16,
     keep_relay: bool,
     twitter_token: &str,
+    mnemonic: &str,
 ) -> Result<()> {
     let tests = get_tests();
     let test = tests
@@ -296,6 +302,7 @@ pub async fn run_single_test(
         private_key: hex::encode(rand::random::<[u8; 32]>()),
         nostrweet_binary: find_nostrweet_binary()?,
         twitter_token: twitter_token.to_string(),
+        mnemonic: mnemonic.to_string(),
     };
 
     // In CI environment, create mock data to avoid Twitter API rate limits

@@ -69,6 +69,7 @@ async fn start_daemon(ctx: &TestContext, username: &str) -> Result<Child> {
 
     cmd.env("NOSTRWEET_OUTPUT_DIR", &ctx.output_dir)
         .env("NOSTRWEET_PRIVATE_KEY", &ctx.private_key)
+        .env("NOSTRWEET_MNEMONIC", &ctx.mnemonic)
         .arg("daemon")
         .arg("--user")
         .arg(username)
