@@ -29,7 +29,7 @@ pub fn create_mock_tweets(output_dir: &Path) -> Result<()> {
         "includes": null
     });
 
-    let filename1 = format!("{}_Twitter_1453856044928933893.json", filename_timestamp);
+    let filename1 = format!("{filename_timestamp}_Twitter_1453856044928933893.json");
     fs::write(
         output_dir.join(filename1),
         serde_json::to_string_pretty(&tweet1)?,
@@ -61,7 +61,7 @@ pub fn create_mock_tweets(output_dir: &Path) -> Result<()> {
         }
     });
 
-    let filename2 = format!("{}_douglaz_1000000000000000001.json", filename_timestamp);
+    let filename2 = format!("{filename_timestamp}_douglaz_1000000000000000001.json");
     fs::write(
         output_dir.join(filename2),
         serde_json::to_string_pretty(&douglaz_tweet1)?,
@@ -90,7 +90,7 @@ pub fn create_mock_tweets(output_dir: &Path) -> Result<()> {
         "includes": null
     });
 
-    let filename3 = format!("{}_douglaz_1000000000000000002.json", filename_timestamp);
+    let filename3 = format!("{filename_timestamp}_douglaz_1000000000000000002.json");
     fs::write(
         output_dir.join(filename3),
         serde_json::to_string_pretty(&douglaz_tweet2)?,
@@ -114,7 +114,7 @@ pub fn create_mock_tweets(output_dir: &Path) -> Result<()> {
         }
     });
 
-    let profile_filename = format!("{}_douglaz_profile.json", filename_timestamp);
+    let profile_filename = format!("{filename_timestamp}_douglaz_profile.json");
     fs::write(
         output_dir.join(profile_filename),
         serde_json::to_string_pretty(&profile)?,
@@ -144,7 +144,7 @@ pub fn create_mock_tweets(output_dir: &Path) -> Result<()> {
         "includes": null
     });
 
-    let test_filename = format!("{}_testuser_123456789.json", filename_timestamp);
+    let test_filename = format!("{filename_timestamp}_testuser_123456789.json");
     fs::write(
         output_dir.join(test_filename),
         serde_json::to_string_pretty(&test_tweet)?,
@@ -169,10 +169,7 @@ pub fn create_mock_tweets(output_dir: &Path) -> Result<()> {
             "includes": null
         });
 
-        let filename = format!(
-            "{}_douglaz_100000000000000000{}.json",
-            filename_timestamp, i
-        );
+        let filename = format!("{filename_timestamp}_douglaz_100000000000000000{i}.json");
         fs::write(
             output_dir.join(filename),
             serde_json::to_string_pretty(&tweet)?,
