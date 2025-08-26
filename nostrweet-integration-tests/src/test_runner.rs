@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Stdio;
 use tempfile::TempDir;
 use tokio::process::Command;
 use tracing::{error, info, warn};
@@ -44,15 +45,21 @@ impl TestContext {
             cmd.arg(arg);
         }
 
-        info!("Running: {:?}", cmd);
-        let output = cmd.output().await.context("Failed to run nostrweet")?;
+        // Inherit both stdout and stderr directly to parent for immediate visibility
+        cmd.stdout(Stdio::inherit());
+        cmd.stderr(Stdio::inherit());
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("Command failed: {stderr}");
+        info!("Running: {:?}", cmd);
+
+        let status = cmd.status().await.context("Failed to run nostrweet")?;
+
+        if !status.success() {
+            bail!("Command failed with exit code {:?}", status.code());
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        // Since we're inheriting stdout, we can't capture the output
+        // Tests that need to verify output should use run_nostrweet_with_output
+        Ok(String::new())
     }
 
     /// Check if a file exists in the output directory
@@ -73,9 +80,34 @@ impl TestContext {
     }
 
     /// Run a nostrweet command and return its output
-    /// This is an alias for run_nostrweet for clarity when output is needed
+    /// This captures stdout for verification while still showing stderr
     pub async fn run_nostrweet_with_output(&self, args: &[&str]) -> Result<String> {
-        self.run_nostrweet(args).await
+        let mut cmd = Command::new(&self.nostrweet_binary);
+
+        // Add common environment variables
+        cmd.env("NOSTRWEET_OUTPUT_DIR", &self.output_dir)
+            .env("NOSTRWEET_PRIVATE_KEY", &self.private_key)
+            .env("NOSTRWEET_RELAYS", &self.relay_url)
+            .env("TWITTER_BEARER_TOKEN", &self.twitter_token);
+
+        // Add arguments
+        for arg in args {
+            cmd.arg(arg);
+        }
+
+        // Capture stdout but inherit stderr for debugging
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::inherit());
+
+        info!("Running (with output capture): {:?}", cmd);
+
+        let output = cmd.output().await.context("Failed to run nostrweet")?;
+
+        if !output.status.success() {
+            bail!("Command failed with exit code {:?}", output.status.code());
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 }
 
