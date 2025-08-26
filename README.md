@@ -1,5 +1,8 @@
 # Nostrweet
 
+[![CI](https://github.com/douglaz/nostrweet/actions/workflows/ci.yml/badge.svg)](https://github.com/douglaz/nostrweet/actions/workflows/ci.yml)
+[![Integration Tests](https://github.com/douglaz/nostrweet/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/douglaz/nostrweet/actions/workflows/integration-tests.yml)
+
 A Rust CLI tool that downloads tweets with their media from Twitter and seamlessly publishes them to Nostr relays. Combines Twitter archiving functionality with Nostr social media publishing, enabling users to migrate their Twitter content to decentralized protocols.
 
 ## Key Features
