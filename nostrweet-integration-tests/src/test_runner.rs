@@ -25,6 +25,7 @@ pub struct TestContext {
     pub output_dir: PathBuf,
     pub private_key: String,
     pub nostrweet_binary: PathBuf,
+    pub twitter_token: String,
 }
 
 impl TestContext {
@@ -35,7 +36,8 @@ impl TestContext {
         // Add common environment variables
         cmd.env("NOSTRWEET_OUTPUT_DIR", &self.output_dir)
             .env("NOSTRWEET_PRIVATE_KEY", &self.private_key)
-            .env("NOSTRWEET_RELAYS", &self.relay_url);
+            .env("NOSTRWEET_RELAYS", &self.relay_url)
+            .env("TWITTER_BEARER_TOKEN", &self.twitter_token);
 
         // Add arguments
         for arg in args {
@@ -124,7 +126,7 @@ fn get_tests() -> Vec<TestInfo> {
 }
 
 /// Run all integration tests
-pub async fn run_all_tests(relay_port: u16, keep_relay: bool) -> Result<()> {
+pub async fn run_all_tests(relay_port: u16, keep_relay: bool, twitter_token: &str) -> Result<()> {
     let tests = get_tests();
     let mut results = HashMap::new();
     let mut relay = None;
@@ -159,6 +161,7 @@ pub async fn run_all_tests(relay_port: u16, keep_relay: bool) -> Result<()> {
             output_dir: temp_dir.path().to_path_buf(),
             private_key: hex::encode(rand::random::<[u8; 32]>()),
             nostrweet_binary: find_nostrweet_binary()?,
+            twitter_token: twitter_token.to_string(),
         };
 
         // Run test
@@ -209,7 +212,12 @@ pub async fn run_all_tests(relay_port: u16, keep_relay: bool) -> Result<()> {
 }
 
 /// Run a single test
-pub async fn run_single_test(test_name: &str, relay_port: u16, keep_relay: bool) -> Result<()> {
+pub async fn run_single_test(
+    test_name: &str,
+    relay_port: u16,
+    keep_relay: bool,
+    twitter_token: &str,
+) -> Result<()> {
     let tests = get_tests();
     let test = tests
         .into_iter()
@@ -229,6 +237,7 @@ pub async fn run_single_test(test_name: &str, relay_port: u16, keep_relay: bool)
         output_dir: temp_dir.path().to_path_buf(),
         private_key: hex::encode(rand::random::<[u8; 32]>()),
         nostrweet_binary: find_nostrweet_binary()?,
+        twitter_token: twitter_token.to_string(),
     };
 
     // Run test
