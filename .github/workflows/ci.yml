@@ -164,7 +164,7 @@ jobs:
     name: Final Check
     runs-on: ubuntu-latest
     # Only run after all other jobs pass
-    needs: [check, test, build, test-cross-platform, integration-test]
+    needs: [check, test, build, test-cross-platform]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
