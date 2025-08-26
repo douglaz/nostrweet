@@ -37,13 +37,9 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
 
     // Step 3: Post profile to Nostr
     info!("Posting profile to Nostr");
-    ctx.run_nostrweet(&[
-        "post-profile-to-nostr",
-        "--force", // Force posting even if already posted
-        username,
-    ])
-    .await
-    .context("Failed to post profile to Nostr")?;
+    ctx.run_nostrweet(&["post-profile-to-nostr", username])
+        .await
+        .context("Failed to post profile to Nostr")?;
 
     // Step 4: Verify metadata event on relay
     info!("Verifying metadata event on Nostr relay");
