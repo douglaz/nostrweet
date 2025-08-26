@@ -2,8 +2,10 @@ use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::time::Duration;
 use tempfile::TempDir;
 use tokio::process::Command;
+use tokio::time::timeout;
 use tracing::{error, info, warn};
 
 use crate::relay::NostrRelay;
@@ -53,7 +55,13 @@ impl TestContext {
 
         info!("Running: {:?}", cmd);
 
-        let status = cmd.status().await.context("Failed to run nostrweet")?;
+        // Apply a 60-second timeout to prevent hanging on API calls
+        let status = match timeout(Duration::from_secs(60), cmd.status()).await {
+            Ok(result) => result.context("Failed to run nostrweet")?,
+            Err(_) => {
+                bail!("Command timed out after 60 seconds. This may indicate a Twitter API issue.");
+            }
+        };
 
         if !status.success() {
             bail!("Command failed with exit code {:?}", status.code());
@@ -105,7 +113,13 @@ impl TestContext {
 
         info!("Running (with output capture): {:?}", cmd);
 
-        let output = cmd.output().await.context("Failed to run nostrweet")?;
+        // Apply a 60-second timeout to prevent hanging on API calls
+        let output = match timeout(Duration::from_secs(60), cmd.output()).await {
+            Ok(result) => result.context("Failed to run nostrweet")?,
+            Err(_) => {
+                bail!("Command timed out after 60 seconds. This may indicate a Twitter API issue.");
+            }
+        };
 
         if !output.status.success() {
             bail!("Command failed with exit code {:?}", output.status.code());
