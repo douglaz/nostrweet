@@ -154,8 +154,8 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         content = reply_event.content
     );
 
-    // Check for reply marker
-    if !reply_event.content.contains("replied to") {
+    // Check for reply marker (using ↩️ emoji or "Reply to" text)
+    if !reply_event.content.contains("Reply to") && !reply_event.content.contains("↩️") {
         anyhow::bail!("Reply marker not found in event");
     }
 

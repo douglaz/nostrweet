@@ -36,7 +36,14 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     // Step 2: Test basic query without filters
     info!("Testing basic query-events");
     let output = ctx
-        .run_nostrweet_with_output(&["utils", "query-events", "--limit", "5"])
+        .run_nostrweet_with_output(&[
+            "utils",
+            "query-events",
+            "--relay",
+            &ctx.relay_url,
+            "--limit",
+            "5",
+        ])
         .await
         .context("Failed to query events")?;
 
@@ -55,6 +62,8 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         .run_nostrweet_with_output(&[
             "utils",
             "query-events",
+            "--relay",
+            &ctx.relay_url,
             "--kind",
             "0", // Kind 0 = metadata
             "--limit",
@@ -74,6 +83,8 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         .run_nostrweet_with_output(&[
             "utils",
             "query-events",
+            "--relay",
+            &ctx.relay_url,
             "--kind",
             "1", // Kind 1 = text note
             "--limit",
@@ -90,7 +101,16 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     // Step 5: Test JSON format output
     info!("Testing query-events with JSON format");
     let json_output = ctx
-        .run_nostrweet_with_output(&["utils", "query-events", "--format", "json", "--limit", "2"])
+        .run_nostrweet_with_output(&[
+            "utils",
+            "query-events",
+            "--relay",
+            &ctx.relay_url,
+            "--format",
+            "json",
+            "--limit",
+            "2",
+        ])
         .await
         .context("Failed to query events with JSON format")?;
 
@@ -110,7 +130,16 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     let npub = keys.public_key().to_bech32()?;
 
     let author_output = ctx
-        .run_nostrweet_with_output(&["utils", "query-events", "--author", &npub, "--limit", "10"])
+        .run_nostrweet_with_output(&[
+            "utils",
+            "query-events",
+            "--relay",
+            &ctx.relay_url,
+            "--author",
+            &npub,
+            "--limit",
+            "10",
+        ])
         .await
         .context("Failed to query events by author")?;
 
@@ -134,6 +163,8 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         .run_nostrweet_with_output(&[
             "utils",
             "query-events",
+            "--relay",
+            &ctx.relay_url,
             "--since",
             &since.to_string(),
             "--until",
@@ -156,6 +187,8 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     ctx.run_nostrweet(&[
         "utils",
         "query-events",
+        "--relay",
+        &ctx.relay_url,
         "--format",
         "json",
         "--limit",
