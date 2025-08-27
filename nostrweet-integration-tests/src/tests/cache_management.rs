@@ -10,7 +10,7 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
 
     // Step 1: Fetch some tweets to populate the cache
     info!("Populating cache with test data");
-    ctx.run_nostrweet(&["fetch-tweet", "1453856044928933893"])
+    ctx.run_nostrweet(&["fetch-tweet", "1959656925500424585"])
         .await
         .context("Failed to fetch tweet for cache test")?;
 
