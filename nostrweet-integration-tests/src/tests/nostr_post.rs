@@ -37,14 +37,12 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         "includes": null
     });
 
-    // Save test tweet to file - only if not in CI (CI uses mock data)
-    if std::env::var("CI").is_err() {
-        let tweet_file = ctx
-            .output_dir
-            .join("20240101_000000_testuser_123456789.json");
-        fs::write(&tweet_file, serde_json::to_string_pretty(&test_tweet)?)
-            .context("Failed to write test tweet file")?;
-    }
+    // Save test tweet to file
+    let tweet_file = ctx
+        .output_dir
+        .join("20240101_000000_testuser_123456789.json");
+    fs::write(&tweet_file, serde_json::to_string_pretty(&test_tweet)?)
+        .context("Failed to write test tweet file")?;
 
     // Test 1: Post regular tweet
     info!("Testing regular tweet post");
