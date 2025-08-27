@@ -366,7 +366,7 @@ impl TwitterClient {
                 let sleep_duration =
                     self.calculate_sleep_duration_with_jitter(Duration::from_secs(base_wait_secs));
 
-                debug!("Rate limited by Twitter API for {resource_id}. Limit: {limit:?}, Remaining: {remaining:?}, Reset: {reset:?}. Retrying in {sleep_duration:?} (attempt {attempt}/{max_attempts})",
+                info!("Rate limited by Twitter API for {resource_id}. Limit: {limit:?}, Remaining: {remaining:?}, Reset: {reset:?}. Retrying in {sleep_duration:?} (attempt {attempt}/{max_attempts})",
                       limit = rate_limits.limit,
                       remaining = rate_limits.remaining,
                       reset = rate_limits.reset);

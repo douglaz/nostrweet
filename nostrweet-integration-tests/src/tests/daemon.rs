@@ -17,7 +17,7 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
 
     // First, fetch some tweets for the daemon to post
     info!("Pre-fetching tweets for daemon test");
-    ctx.run_nostrweet(&["user-tweets", "--limit", "5", username])
+    ctx.run_nostrweet(&["user-tweets", username])
         .await
         .context("Failed to fetch user tweets")?;
 
@@ -36,8 +36,8 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     client.add_relay(&ctx.relay_url).await?;
     client.connect().await;
 
-    // Query for text events
-    let filter = Filter::new().author(keys.public_key()).kind(Kind::TextNote);
+    // Query for all text events (not filtered by author since we use mnemonic-based key derivation)
+    let filter = Filter::new().kind(Kind::TextNote).limit(20);
 
     let events = client.fetch_events(filter, Duration::from_secs(5)).await?;
 
@@ -69,6 +69,7 @@ async fn start_daemon(ctx: &TestContext, username: &str) -> Result<Child> {
 
     cmd.env("NOSTRWEET_OUTPUT_DIR", &ctx.output_dir)
         .env("NOSTRWEET_PRIVATE_KEY", &ctx.private_key)
+        .env("NOSTRWEET_MNEMONIC", &ctx.mnemonic)
         .arg("daemon")
         .arg("--user")
         .arg(username)

@@ -29,6 +29,18 @@ struct Cli {
     /// Enable verbose logging
     #[arg(short, long)]
     verbose: bool,
+
+    /// Twitter Bearer Token for API access
+    #[arg(long, env = "TWITTER_BEARER_TOKEN")]
+    twitter_token: String,
+
+    /// BIP39 mnemonic for deterministic key derivation
+    #[arg(
+        long,
+        env = "NOSTRWEET_MNEMONIC",
+        default_value = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+    )]
+    mnemonic: String,
 }
 
 #[derive(Subcommand)]
@@ -62,11 +74,24 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::RunAll => {
             info!("Running all integration tests");
-            test_runner::run_all_tests(cli.relay_port, cli.keep_relay).await?;
+            test_runner::run_all_tests(
+                cli.relay_port,
+                cli.keep_relay,
+                &cli.twitter_token,
+                &cli.mnemonic,
+            )
+            .await?;
         }
         Commands::Run { test } => {
             info!("Running test: {test}");
-            test_runner::run_single_test(&test, cli.relay_port, cli.keep_relay).await?;
+            test_runner::run_single_test(
+                &test,
+                cli.relay_port,
+                cli.keep_relay,
+                &cli.twitter_token,
+                &cli.mnemonic,
+            )
+            .await?;
         }
         Commands::Cleanup => {
             info!("Cleaning up test artifacts");

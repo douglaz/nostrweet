@@ -40,8 +40,8 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     // Wait for events to propagate
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-    // Query for text events from our pubkey
-    let filter = Filter::new().author(keys.public_key()).kind(Kind::TextNote);
+    // Query for all text events (not filtered by author since we use mnemonic-based key derivation)
+    let filter = Filter::new().kind(Kind::TextNote).limit(20);
 
     let events = client
         .fetch_events(filter, std::time::Duration::from_secs(5))

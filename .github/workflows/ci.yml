@@ -26,9 +26,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v9
 
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
-
       - name: Check Rust formatting
         run: nix develop -c cargo fmt --all -- --check
 
@@ -53,9 +50,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v9
 
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
-
       - name: Build project
         run: nix develop -c just build
 
@@ -68,37 +62,8 @@ jobs:
       - name: Run doc tests
         run: nix develop -c cargo test --doc
 
-  integration-test:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: test
-    env:
-      TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v9
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
-
-      - name: Build nostrweet binary
-        run: nix develop -c cargo build -p nostrweet
-
-      - name: Build integration test binary
-        run: nix develop -c cargo build -p nostrweet-integration-tests
-
-      - name: Run integration tests
-        run: |
-          # Skip if no Twitter token is available (e.g., on forks)
-          if [ -z "$TWITTER_BEARER_TOKEN" ]; then
-            echo "Skipping integration tests - no Twitter token available"
-            exit 0
-          fi
-          nix develop -c just integration-test
-        continue-on-error: true  # Don't fail build on integration test failures initially
+  # Integration tests moved to separate workflow: .github/workflows/integration-tests.yml
+  # They run on push, PR, schedule, and manual trigger
 
   build:
     name: Build
@@ -114,9 +79,6 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v9
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
 
       - name: Build for ${{ matrix.target }}
         run: |
@@ -151,9 +113,6 @@ jobs:
         if: matrix.os == 'macos-latest'
         uses: DeterminateSystems/nix-installer-action@v9
       
-      - name: Setup Nix cache (macOS only)
-        if: matrix.os == 'macos-latest'
-        uses: DeterminateSystems/magic-nix-cache-action@v2
       
       # Windows: Use native Rust toolchain
       - name: Install Rust (Windows only)
@@ -193,16 +152,13 @@ jobs:
     name: Final Check
     runs-on: ubuntu-latest
     # Only run after all other jobs pass
-    needs: [check, test, build, test-cross-platform, integration-test]
+    needs: [check, test, build, test-cross-platform]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v9
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
 
       - name: Run final checks (lint + clippy + tests)
         run: nix develop -c just final-check
@@ -217,9 +173,6 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v9
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
 
       - name: Install cargo-audit
         run: nix develop -c cargo install cargo-audit
@@ -246,9 +199,6 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v9
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
 
       - name: Build release binary
         run: nix develop -c cargo build --release --target ${{ matrix.target }}

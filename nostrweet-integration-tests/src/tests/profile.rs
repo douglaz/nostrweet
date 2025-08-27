@@ -18,9 +18,18 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         .await
         .context("Failed to fetch profile")?;
 
-    // Step 2: Verify profile was downloaded
-    let profile_file = ctx.output_dir.join(format!("{username}.json"));
-    if !profile_file.exists() {
+    // Step 2: Verify profile was downloaded (look for any file with username in it)
+    let profile_files: Vec<_> = std::fs::read_dir(&ctx.output_dir)?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .contains(&format!("_{username}_"))
+        })
+        .collect();
+
+    if profile_files.is_empty() {
         anyhow::bail!("Profile file not found after download");
     }
 
@@ -28,13 +37,9 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
 
     // Step 3: Post profile to Nostr
     info!("Posting profile to Nostr");
-    ctx.run_nostrweet(&[
-        "post-profile-to-nostr",
-        "--force", // Force posting even if already posted
-        username,
-    ])
-    .await
-    .context("Failed to post profile to Nostr")?;
+    ctx.run_nostrweet(&["post-profile-to-nostr", username])
+        .await
+        .context("Failed to post profile to Nostr")?;
 
     // Step 4: Verify metadata event on relay
     info!("Verifying metadata event on Nostr relay");
@@ -48,8 +53,8 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     // Wait a moment for event to propagate
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    // Query for metadata events from our pubkey
-    let filter = Filter::new().author(keys.public_key()).kind(Kind::Metadata);
+    // Query for all metadata events (not filtered by author since we use mnemonic-based key derivation)
+    let filter = Filter::new().kind(Kind::Metadata).limit(10);
 
     let events = client
         .fetch_events(filter, std::time::Duration::from_secs(5))

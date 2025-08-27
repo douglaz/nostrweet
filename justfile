@@ -84,19 +84,19 @@ build-integration-tests:
 
 # Run all integration tests
 integration-test: build
-    cd nostrweet-integration-tests && cargo run -- run-all
+    cd nostrweet-integration-tests && cargo run -- --twitter-token "$TWITTER_BEARER_TOKEN" run-all
 
 # Run a specific integration test
 integration-test-single TEST: build
-    cd nostrweet-integration-tests && cargo run -- run --test {{TEST}}
+    cd nostrweet-integration-tests && cargo run -- --twitter-token "$TWITTER_BEARER_TOKEN" run --test {{TEST}}
 
 # Run integration tests with custom relay port
 integration-test-port PORT: build
-    cd nostrweet-integration-tests && cargo run -- --relay-port {{PORT}} run-all
+    cd nostrweet-integration-tests && cargo run -- --twitter-token "$TWITTER_BEARER_TOKEN" --relay-port {{PORT}} run-all
 
 # Run integration tests keeping relay running
 integration-test-debug: build
-    cd nostrweet-integration-tests && cargo run -- --keep-relay --verbose run-all
+    cd nostrweet-integration-tests && cargo run -- --twitter-token "$TWITTER_BEARER_TOKEN" --keep-relay --verbose run-all
 
 # Clean up integration test artifacts
 integration-cleanup:

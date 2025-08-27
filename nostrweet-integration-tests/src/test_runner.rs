@@ -1,8 +1,11 @@
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Stdio;
+use std::time::Duration;
 use tempfile::TempDir;
 use tokio::process::Command;
+use tokio::time::timeout;
 use tracing::{error, info, warn};
 
 use crate::relay::NostrRelay;
@@ -25,6 +28,8 @@ pub struct TestContext {
     pub output_dir: PathBuf,
     pub private_key: String,
     pub nostrweet_binary: PathBuf,
+    pub twitter_token: String,
+    pub mnemonic: String,
 }
 
 impl TestContext {
@@ -35,22 +40,36 @@ impl TestContext {
         // Add common environment variables
         cmd.env("NOSTRWEET_OUTPUT_DIR", &self.output_dir)
             .env("NOSTRWEET_PRIVATE_KEY", &self.private_key)
-            .env("NOSTRWEET_RELAYS", &self.relay_url);
+            .env("NOSTRWEET_RELAYS", &self.relay_url)
+            .env("TWITTER_BEARER_TOKEN", &self.twitter_token)
+            .env("NOSTRWEET_MNEMONIC", &self.mnemonic);
 
         // Add arguments
         for arg in args {
             cmd.arg(arg);
         }
 
-        info!("Running: {:?}", cmd);
-        let output = cmd.output().await.context("Failed to run nostrweet")?;
+        // Inherit both stdout and stderr directly to parent for immediate visibility
+        cmd.stdout(Stdio::inherit());
+        cmd.stderr(Stdio::inherit());
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("Command failed: {stderr}");
+        info!("Running: {:?}", cmd);
+
+        // Apply a 15-minute timeout to allow for Twitter API rate limit retries
+        let status = match timeout(Duration::from_secs(900), cmd.status()).await {
+            Ok(result) => result.context("Failed to run nostrweet")?,
+            Err(_) => {
+                bail!("Command timed out after 15 minutes. This may indicate a Twitter API issue.");
+            }
+        };
+
+        if !status.success() {
+            bail!("Command failed with exit code {:?}", status.code());
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        // Since we're inheriting stdout, we can't capture the output
+        // Tests that need to verify output should use run_nostrweet_with_output
+        Ok(String::new())
     }
 
     /// Check if a file exists in the output directory
@@ -71,9 +90,41 @@ impl TestContext {
     }
 
     /// Run a nostrweet command and return its output
-    /// This is an alias for run_nostrweet for clarity when output is needed
+    /// This captures stdout for verification while still showing stderr
     pub async fn run_nostrweet_with_output(&self, args: &[&str]) -> Result<String> {
-        self.run_nostrweet(args).await
+        let mut cmd = Command::new(&self.nostrweet_binary);
+
+        // Add common environment variables
+        cmd.env("NOSTRWEET_OUTPUT_DIR", &self.output_dir)
+            .env("NOSTRWEET_PRIVATE_KEY", &self.private_key)
+            .env("NOSTRWEET_RELAYS", &self.relay_url)
+            .env("TWITTER_BEARER_TOKEN", &self.twitter_token)
+            .env("NOSTRWEET_MNEMONIC", &self.mnemonic);
+
+        // Add arguments
+        for arg in args {
+            cmd.arg(arg);
+        }
+
+        // Capture stdout but inherit stderr for debugging
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::inherit());
+
+        info!("Running (with output capture): {:?}", cmd);
+
+        // Apply a 15-minute timeout to allow for Twitter API rate limit retries
+        let output = match timeout(Duration::from_secs(900), cmd.output()).await {
+            Ok(result) => result.context("Failed to run nostrweet")?,
+            Err(_) => {
+                bail!("Command timed out after 15 minutes. This may indicate a Twitter API issue.");
+            }
+        };
+
+        if !output.status.success() {
+            bail!("Command failed with exit code {:?}", output.status.code());
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 }
 
@@ -124,7 +175,12 @@ fn get_tests() -> Vec<TestInfo> {
 }
 
 /// Run all integration tests
-pub async fn run_all_tests(relay_port: u16, keep_relay: bool) -> Result<()> {
+pub async fn run_all_tests(
+    relay_port: u16,
+    keep_relay: bool,
+    twitter_token: &str,
+    mnemonic: &str,
+) -> Result<()> {
     let tests = get_tests();
     let mut results = HashMap::new();
     let mut relay = None;
@@ -159,6 +215,8 @@ pub async fn run_all_tests(relay_port: u16, keep_relay: bool) -> Result<()> {
             output_dir: temp_dir.path().to_path_buf(),
             private_key: hex::encode(rand::random::<[u8; 32]>()),
             nostrweet_binary: find_nostrweet_binary()?,
+            twitter_token: twitter_token.to_string(),
+            mnemonic: mnemonic.to_string(),
         };
 
         // Run test
@@ -209,7 +267,13 @@ pub async fn run_all_tests(relay_port: u16, keep_relay: bool) -> Result<()> {
 }
 
 /// Run a single test
-pub async fn run_single_test(test_name: &str, relay_port: u16, keep_relay: bool) -> Result<()> {
+pub async fn run_single_test(
+    test_name: &str,
+    relay_port: u16,
+    keep_relay: bool,
+    twitter_token: &str,
+    mnemonic: &str,
+) -> Result<()> {
     let tests = get_tests();
     let test = tests
         .into_iter()
@@ -229,6 +293,8 @@ pub async fn run_single_test(test_name: &str, relay_port: u16, keep_relay: bool)
         output_dir: temp_dir.path().to_path_buf(),
         private_key: hex::encode(rand::random::<[u8; 32]>()),
         nostrweet_binary: find_nostrweet_binary()?,
+        twitter_token: twitter_token.to_string(),
+        mnemonic: mnemonic.to_string(),
     };
 
     // Run test
