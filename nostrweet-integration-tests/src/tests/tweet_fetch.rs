@@ -95,14 +95,9 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
         .context("Event signature verification failed")?;
     info!("  ✓ Event signature is valid");
 
-    // 3. Check timestamp is reasonable (within last 5 minutes)
-    let now = Timestamp::now();
-    let event_age = now.as_u64().saturating_sub(event.created_at.as_u64());
-    if event_age > 300 {
-        // 5 minutes
-        anyhow::bail!("Event timestamp is too old: {event_age} seconds");
-    }
-    info!("  ✓ Event timestamp is recent");
+    // 3. Skip timestamp check - event timestamp should match original tweet timestamp
+    // which can be days/weeks old for existing tweets
+    info!("  ✓ Event timestamp check skipped (preserves original tweet timestamp)");
 
     // 4. Skip pubkey verification as we use mnemonic-based key derivation
     // The key is derived from Twitter user ID, not our test key
