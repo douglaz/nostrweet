@@ -255,6 +255,8 @@ pub async fn execute_with_options(
             options.force,
             true, // Always skip profiles here, we'll post them all at once at the end
             mnemonic,
+            None, // Use default cache dir
+            None, // Bearer token not needed for cached tweets
         )
         .await
         {

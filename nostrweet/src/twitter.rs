@@ -1,6 +1,4 @@
-use crate::error_utils::{
-    create_http_client_with_context, get_required_env_var, parse_http_response_json,
-};
+use crate::error_utils::{create_http_client_with_context, parse_http_response_json};
 use anyhow::{Context, Result, bail};
 use backoff::{ExponentialBackoffBuilder, backoff::Backoff};
 use regex::Regex;
@@ -532,11 +530,8 @@ impl TwitterClient {
         Ok(())
     }
 
-    /// Creates a new Twitter client using the TWITTER_BEARER_TOKEN env variable
-    /// and the provided cache directory.
-    pub fn new(cache_dir: &Path) -> Result<Self> {
-        let bearer_token = get_required_env_var("TWITTER_BEARER_TOKEN")?;
-
+    /// Creates a new Twitter client with the provided bearer token and cache directory.
+    pub fn new(cache_dir: &Path, bearer_token: &str) -> Result<Self> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -556,7 +551,7 @@ impl TwitterClient {
 
         Ok(Self {
             client,
-            bearer_token,
+            bearer_token: bearer_token.to_string(),
             cache_dir: Some(cache_dir.to_path_buf()),
         })
     }
@@ -578,7 +573,12 @@ impl TwitterClient {
     /// Internal implementation of tweet fetching logic
     async fn get_tweet_internal(&self, tweet_id: &str) -> Result<Tweet> {
         // First check if we can find the tweet in any known directory
-        if let Some(existing_path) = crate::storage::find_tweet_in_all_directories(tweet_id) {
+        // Use cache_dir as both output and cache dir for backward compatibility
+        let cache = self.cache_dir.as_ref().map(|p| p.as_path());
+        let output = cache.unwrap_or(Path::new("./downloads"));
+        if let Some(existing_path) =
+            crate::storage::find_tweet_in_all_directories(tweet_id, output, cache)
+        {
             debug!(
                 "Found tweet {tweet_id} in directory {path}, loading from disk",
                 path = existing_path.parent().unwrap_or(Path::new("./")).display()

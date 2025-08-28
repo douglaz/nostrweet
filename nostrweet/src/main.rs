@@ -31,6 +31,14 @@ struct Cli {
     #[arg(short, long, env = "NOSTRWEET_OUTPUT_DIR", global = true)]
     output_dir: Option<PathBuf>,
 
+    /// Cache directory for storing intermediate data
+    #[arg(short = 'c', long, env = "NOSTRWEET_CACHE_DIR", global = true)]
+    cache_dir: Option<PathBuf>,
+
+    /// Twitter API bearer token for authentication
+    #[arg(short = 'b', long, env = "TWITTER_BEARER_TOKEN", global = true)]
+    bearer_token: Option<String>,
+
     /// BIP39 mnemonic phrase for deriving Nostr keys
     #[arg(short = 'm', long, env = "NOSTRWEET_MNEMONIC", global = true)]
     mnemonic: Option<String>,
@@ -315,23 +323,65 @@ async fn main() -> Result<()> {
         );
     }
 
+    // Determine if we need bearer token for the current command
+    let needs_bearer_token = matches!(
+        &args.command,
+        Commands::FetchProfile { .. }
+            | Commands::FetchTweet { .. }
+            | Commands::UserTweets { .. }
+            | Commands::ShowTweet(_)
+            | Commands::Daemon { .. }
+    );
+
+    // Get bearer token if needed
+    let bearer_token = if needs_bearer_token {
+        Some(args.bearer_token.context(
+            "Twitter bearer token not specified. Please set --bearer-token or TWITTER_BEARER_TOKEN environment variable"
+        )?)
+    } else {
+        args.bearer_token
+    };
+
+    // Get cache directory (defaults to output directory if not specified)
+    let cache_dir = args.cache_dir.as_ref().unwrap_or(&output_dir);
+
     // Handle subcommands
     match args.command {
         Commands::FetchProfile { username } => {
-            commands::fetch_profile::execute(&username, &output_dir).await?
+            commands::fetch_profile::execute(
+                &username,
+                &output_dir,
+                bearer_token.as_deref().unwrap(),
+            )
+            .await?
         }
         Commands::FetchTweet {
             tweet_url_or_id,
             skip_profiles,
-        } => commands::fetch_tweet::execute(&tweet_url_or_id, &output_dir, skip_profiles).await?,
+        } => {
+            commands::fetch_tweet::execute(
+                &tweet_url_or_id,
+                &output_dir,
+                skip_profiles,
+                bearer_token.as_deref().unwrap(),
+            )
+            .await?
+        }
         Commands::UserTweets {
             username,
             count,
             days,
             skip_profiles,
         } => {
-            commands::user_tweets::execute(&username, &output_dir, Some(count), days, skip_profiles)
-                .await?
+            commands::user_tweets::execute(
+                &username,
+                &output_dir,
+                Some(count),
+                days,
+                skip_profiles,
+                bearer_token.as_deref().unwrap(),
+            )
+            .await?
         }
         Commands::ListTweets => commands::list_tweets::execute(&output_dir).await?,
         Commands::ClearCache { force } => {
@@ -352,6 +402,8 @@ async fn main() -> Result<()> {
                 force,
                 skip_profiles,
                 args.mnemonic.as_deref(),
+                Some(cache_dir),
+                bearer_token.as_deref(),
             )
             .await?
         }
@@ -388,6 +440,8 @@ async fn main() -> Result<()> {
                 force,
                 skip_profiles,
                 args.mnemonic.as_deref(),
+                Some(cache_dir),
+                bearer_token.as_deref(),
             )
             .await?
         }
@@ -403,7 +457,7 @@ async fn main() -> Result<()> {
         Commands::UpdateRelayList { relays } => {
             commands::update_relay_list::execute(&relays, args.mnemonic.as_deref()).await?
         }
-        Commands::ShowTweet(cmd) => cmd.execute(&output_dir).await?,
+        Commands::ShowTweet(cmd) => cmd.execute(&output_dir, bearer_token.as_deref()).await?,
         Commands::Daemon {
             users,
             relays,
@@ -417,6 +471,7 @@ async fn main() -> Result<()> {
                 poll_interval,
                 &output_dir,
                 args.mnemonic.as_deref(),
+                bearer_token.as_deref().unwrap(),
             )
             .await?
         }

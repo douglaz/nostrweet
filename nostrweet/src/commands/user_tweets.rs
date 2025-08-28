@@ -21,6 +21,7 @@ pub async fn execute(
     max_results: Option<u32>,
     days: Option<u32>,
     skip_profiles: bool,
+    bearer_token: &str,
 ) -> Result<()> {
     // Clean username (remove @ if present)
     let username = username.trim_start_matches('@');
@@ -28,8 +29,8 @@ pub async fn execute(
     info!("Fetching recent tweets for user @{username}");
 
     // Create Twitter client
-    let client =
-        twitter::TwitterClient::new(output_dir).context("Failed to initialize Twitter client")?;
+    let client = twitter::TwitterClient::new(output_dir, bearer_token)
+        .context("Failed to initialize Twitter client")?;
 
     // Fetch tweets from user's timeline
     let tweets = client

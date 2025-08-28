@@ -1,4 +1,4 @@
-use crate::error_utils::{create_http_client_with_context, get_optional_env_var};
+use crate::error_utils::create_http_client_with_context;
 use crate::filename_utils::{media_filename, sanitized_file_path};
 use crate::twitter::{Media as TwitterMedia, Tweet};
 use anyhow::{Context, Result, ensure};
@@ -279,6 +279,7 @@ fn build_media_request(
     client: &Client,
     download_url: &str,
     media_type: &str,
+    bearer_token: Option<&str>,
 ) -> Result<reqwest::RequestBuilder> {
     // Build request with headers to avoid 403 on protected media
     let mut req_builder = client
@@ -326,16 +327,14 @@ fn build_media_request(
 
     // Conditionally attach bearer token for non-public hosts
     if !(download_url.contains("pbs.twimg.com") || download_url.contains("video.twimg.com")) {
-        if let Some(bearer) = get_optional_env_var("TWITTER_BEARER_TOKEN") {
-            req_builder = req_builder.bearer_auth(&bearer);
-            debug!("Using TWITTER_BEARER_TOKEN for URL: {download_url}");
+        if let Some(bearer) = bearer_token {
+            req_builder = req_builder.bearer_auth(bearer);
+            debug!("Using bearer token for URL: {download_url}");
         } else {
-            warn!(
-                "TWITTER_BEARER_TOKEN not found. Media download for URL ({download_url}) may fail.",
-            );
+            warn!("Bearer token not provided. Media download for URL ({download_url}) may fail.",);
         }
     } else {
-        debug!("Skipping TWITTER_BEARER_TOKEN for known public media URL: {download_url}");
+        debug!("Skipping bearer token for known public media URL: {download_url}");
     }
 
     Ok(req_builder)
@@ -470,7 +469,8 @@ async fn download_media_item(
         type_field = media.type_field
     );
 
-    let req_builder = build_media_request(client, download_url, &media.type_field)?;
+    // TODO: Thread bearer_token through download_media_item and download_media functions
+    let req_builder = build_media_request(client, download_url, &media.type_field, None)?;
 
     // Debug: log the prepared request headers to diagnose 403
     if let Some(rb) = req_builder.try_clone() {

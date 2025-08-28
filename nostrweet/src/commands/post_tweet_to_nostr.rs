@@ -61,6 +61,8 @@ pub async fn execute(
     force: bool,
     skip_profiles: bool,
     mnemonic: Option<&str>,
+    cache_dir: Option<&Path>,
+    bearer_token: Option<&str>,
 ) -> Result<()> {
     // Parse tweet ID from URL or ID string
     let tweet_id = twitter::parse_tweet_id(tweet_url_or_id)
@@ -98,7 +100,9 @@ pub async fn execute(
             // If not, download it first
             debug!("Tweet {tweet_id} not found locally, downloading it first");
 
-            let client = twitter::TwitterClient::new(output_dir)
+            let bearer = bearer_token
+                .ok_or_else(|| anyhow::anyhow!("Bearer token required to download tweet"))?;
+            let client = twitter::TwitterClient::new(output_dir, bearer)
                 .context("Failed to initialize Twitter client")?;
 
             let tweet = client
@@ -136,7 +140,11 @@ pub async fn execute(
                             "Referenced tweet {id} not found in output_dir, checking other directories",
                             id = ref_tweet.id
                         );
-                        existing_path = storage::find_tweet_in_all_directories(&ref_tweet.id);
+                        existing_path = storage::find_tweet_in_all_directories(
+                            &ref_tweet.id,
+                            output_dir,
+                            cache_dir,
+                        );
                     }
 
                     if let Some(path) = existing_path {
@@ -218,21 +226,23 @@ pub async fn execute(
     // If we suspect there's a video but don't have direct media URLs, fetch extended media
     if need_extended_media {
         debug!("Fetching extended media information for tweet {tweet_id}");
-        let twitter_client_result = twitter::TwitterClient::new(output_dir);
-        if let Ok(twitter_client_instance) = twitter_client_result {
-            let extended_tweet = twitter_client_instance
-                .get_tweet_with_media(&tweet_id)
-                .await
-                .context("Failed to fetch tweet with extended media")?;
+        if let Some(bearer) = bearer_token {
+            let twitter_client_result = twitter::TwitterClient::new(output_dir, bearer);
+            if let Ok(twitter_client_instance) = twitter_client_result {
+                let extended_tweet = twitter_client_instance
+                    .get_tweet_with_media(&tweet_id)
+                    .await
+                    .context("Failed to fetch tweet with extended media")?;
 
-            // Re-extract media URLs from the extended tweet information
-            tweet_media_urls = media::extract_media_urls_from_tweet(&extended_tweet);
-            debug!(
-                "After fetching extended media, found {} media URLs",
-                tweet_media_urls.len()
-            );
-        } else {
-            debug!("Failed to initialize Twitter client for extended media fetch");
+                // Re-extract media URLs from the extended tweet information
+                tweet_media_urls = media::extract_media_urls_from_tweet(&extended_tweet);
+                debug!(
+                    "After fetching extended media, found {} media URLs",
+                    tweet_media_urls.len()
+                );
+            } else {
+                debug!("Failed to initialize Twitter client for extended media fetch");
+            }
         }
     }
 
@@ -288,14 +298,14 @@ pub async fn execute(
         blossom_urls.clone()
     };
 
-    // Get cache directory for resolving mentions
-    let cache_dir = std::env::var("NOSTRWEET_CACHE_DIR")
-        .or_else(|_| std::env::var("NOSTRWEET_OUTPUT_DIR"))
-        .ok();
+    // Use provided cache directory or fall back to output directory
+    let cache_path = cache_dir.unwrap_or(output_dir);
 
     // Create a resolver for Twitter username to Nostr pubkey mapping
-    let mut resolver =
-        crate::nostr_linking::NostrLinkResolver::new(cache_dir, mnemonic.map(|s| s.to_string()));
+    let mut resolver = crate::nostr_linking::NostrLinkResolver::new(
+        Some(cache_path.to_string_lossy().to_string()),
+        mnemonic.map(|s| s.to_string()),
+    );
 
     // Format tweet content for Nostr with mention resolution
     let (content, mentioned_pubkeys) =

@@ -8,7 +8,12 @@ use crate::storage;
 use crate::twitter;
 
 /// Fetch a single tweet and its media
-pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bool) -> Result<()> {
+pub async fn execute(
+    tweet_url_or_id: &str,
+    output_dir: &Path,
+    skip_profiles: bool,
+    bearer_token: &str,
+) -> Result<()> {
     // Extract tweet ID from URL or use as is
     let tweet_id = twitter::parse_tweet_id(tweet_url_or_id).context("Failed to parse tweet ID")?;
 
@@ -27,7 +32,7 @@ pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bo
         info!("Downloading tweet {tweet_id}");
 
         // Download the tweet and its media
-        let client = twitter::TwitterClient::new(output_dir)
+        let client = twitter::TwitterClient::new(output_dir, bearer_token)
             .context("Failed to initialize Twitter client")?;
 
         // Download the tweet
@@ -113,7 +118,7 @@ pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bo
             );
 
             let username_vec: Vec<String> = usernames.into_iter().collect();
-            let client = twitter::TwitterClient::new(output_dir)
+            let client = twitter::TwitterClient::new(output_dir, bearer_token)
                 .context("Failed to initialize Twitter client for profile downloads")?;
 
             match client

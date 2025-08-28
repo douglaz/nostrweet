@@ -22,6 +22,7 @@ pub struct DaemonConfig {
     pub poll_interval: u64,
     pub output_dir: std::path::PathBuf,
     pub mnemonic: Option<String>,
+    pub bearer_token: String,
 }
 
 /// Per-user state tracking
@@ -136,6 +137,7 @@ pub async fn execute(
     poll_interval: u64,
     output_dir: &Path,
     mnemonic: Option<&str>,
+    bearer_token: &str,
 ) -> Result<()> {
     info!(
         "Starting daemon v2 for {user_count} users with {poll_interval} second base interval",
@@ -149,6 +151,7 @@ pub async fn execute(
         poll_interval,
         output_dir: output_dir.to_path_buf(),
         mnemonic: mnemonic.map(|s| s.to_string()),
+        bearer_token: bearer_token.to_string(),
     });
 
     // Initialize daemon state
@@ -206,7 +209,8 @@ async fn init_daemon(config: Arc<DaemonConfig>) -> Result<DaemonState> {
     // Initialize Twitter client
     info!("Initializing Twitter client");
     let twitter_client = Arc::new(
-        TwitterClient::new(&config.output_dir).context("Failed to initialize Twitter client")?,
+        TwitterClient::new(&config.output_dir, &config.bearer_token)
+            .context("Failed to initialize Twitter client")?,
     );
 
     // Connect to Nostr relays

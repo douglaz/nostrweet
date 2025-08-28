@@ -28,7 +28,7 @@ pub struct ShowTweetCommand {
 }
 
 impl ShowTweetCommand {
-    pub async fn execute(self, output_dir: &Path) -> Result<()> {
+    pub async fn execute(self, output_dir: &Path, bearer_token: Option<&str>) -> Result<()> {
         // Parse tweet ID from input (could be ID or URL)
         let tweet_id = twitter::parse_tweet_id(&self.tweet).with_context(|| {
             format!("Failed to parse tweet ID from: {tweet}", tweet = self.tweet)
@@ -37,39 +37,42 @@ impl ShowTweetCommand {
         info!("Showing tweet {tweet_id}");
 
         // Check if tweet already exists in cache
-        let tweet =
-            if let Some(existing_path) = storage::find_existing_tweet_json(&tweet_id, output_dir) {
-                info!(
-                    "Found cached tweet at: {path}",
-                    path = existing_path.display()
-                );
-                storage::load_tweet_from_file(&existing_path)?
-            } else {
-                info!("Tweet not in cache, downloading...");
+        let tweet = if let Some(existing_path) =
+            storage::find_existing_tweet_json(&tweet_id, output_dir)
+        {
+            info!(
+                "Found cached tweet at: {path}",
+                path = existing_path.display()
+            );
+            storage::load_tweet_from_file(&existing_path)?
+        } else {
+            info!("Tweet not in cache, downloading...");
 
-                // Create Twitter client and fetch tweet
-                let client = twitter::TwitterClient::new(output_dir)
-                    .context("Failed to initialize Twitter client")?;
+            // Create Twitter client and fetch tweet
+            let bearer = bearer_token
+                .ok_or_else(|| anyhow::anyhow!("Bearer token required for downloading tweets"))?;
+            let client = twitter::TwitterClient::new(output_dir, bearer)
+                .context("Failed to initialize Twitter client")?;
 
-                let mut downloaded_tweet = client
-                    .get_tweet(&tweet_id)
-                    .await
-                    .context("Failed to download tweet")?;
+            let mut downloaded_tweet = client
+                .get_tweet(&tweet_id)
+                .await
+                .context("Failed to download tweet")?;
 
-                // Enrich the tweet with referenced tweet data
-                if let Err(e) = client
-                    .enrich_referenced_tweets(&mut downloaded_tweet, Some(output_dir))
-                    .await
-                {
-                    debug!("Failed to enrich referenced tweets: {e}");
-                }
+            // Enrich the tweet with referenced tweet data
+            if let Err(e) = client
+                .enrich_referenced_tweets(&mut downloaded_tweet, Some(output_dir))
+                .await
+            {
+                debug!("Failed to enrich referenced tweets: {e}");
+            }
 
-                // Save to cache
-                let save_path = storage::save_tweet(&downloaded_tweet, output_dir)?;
-                info!("Saved tweet to: {path}", path = save_path.display());
+            // Save to cache
+            let save_path = storage::save_tweet(&downloaded_tweet, output_dir)?;
+            info!("Saved tweet to: {path}", path = save_path.display());
 
-                downloaded_tweet
-            };
+            downloaded_tweet
+        };
 
         // Extract media URLs from the tweet
         let media_urls = media::extract_media_urls_from_tweet(&tweet);

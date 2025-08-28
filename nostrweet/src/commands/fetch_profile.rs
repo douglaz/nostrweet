@@ -6,11 +6,11 @@ use crate::storage;
 use crate::twitter;
 
 /// Fetch a user's profile and save it to a file
-pub async fn execute(username: &str, output_dir: &Path) -> Result<()> {
+pub async fn execute(username: &str, output_dir: &Path, bearer_token: &str) -> Result<()> {
     info!("Downloading profile for {username}");
 
-    let client =
-        twitter::TwitterClient::new(output_dir).context("Failed to initialize Twitter client")?;
+    let client = twitter::TwitterClient::new(output_dir, bearer_token)
+        .context("Failed to initialize Twitter client")?;
     let user = client
         .get_user_by_username(username)
         .await

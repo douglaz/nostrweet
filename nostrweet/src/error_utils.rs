@@ -37,18 +37,6 @@ pub async fn parse_http_response_json<T: DeserializeOwned>(
         .with_context(|| format!("Failed to parse {api_desc} response"))
 }
 
-/// Environment variable handling utilities
-///
-/// Get required environment variable with contextual error handling
-pub fn get_required_env_var(var_name: &str) -> Result<String> {
-    std::env::var(var_name).with_context(|| format!("{var_name} environment variable not set"))
-}
-
-/// Get optional environment variable, returning None if not set or empty
-pub fn get_optional_env_var(var_name: &str) -> Option<String> {
-    std::env::var(var_name).ok().filter(|v| !v.is_empty())
-}
-
 /// Create HTTP client with contextual error handling
 pub fn create_http_client_with_context() -> Result<reqwest::Client> {
     reqwest::Client::builder()
@@ -80,24 +68,6 @@ mod tests {
 
         let parsed_data: TestData = parse_json_with_context(&json_str, "test data").unwrap();
         assert_eq!(parsed_data, data);
-    }
-
-    #[test]
-    fn test_env_var_handling() {
-        // Test required env var (this will likely fail, which is expected)
-        let result = get_required_env_var("NONEXISTENT_VAR");
-        assert!(result.is_err());
-
-        // Test optional env var
-        let result = get_optional_env_var("NONEXISTENT_VAR");
-        assert!(result.is_none());
-
-        // Test with a commonly available env var (PATH is usually set on all systems)
-        // This avoids needing to set env vars in the test
-        if std::env::var("PATH").is_ok() {
-            let result = get_optional_env_var("PATH");
-            assert!(result.is_some());
-        }
     }
 
     #[test]
