@@ -376,7 +376,6 @@ export NOSTRWEET_RELAYS="wss://relay1.com,wss://relay2.com"
 
 # Optional
 export NOSTRWEET_MNEMONIC="your twelve word mnemonic phrase here"
-export NOSTRWEET_BLOSSOM_SERVERS="https://blossom1.com"
 export RUST_LOG="info,nostrweet=debug"
 ```
 
