@@ -59,7 +59,7 @@ pub fn create_http_client_with_context() -> Result<reqwest::Client> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::{Deserialize, Serialize};
+    use serde::Deserialize;
 
     #[derive(Serialize, Deserialize, PartialEq, Debug)]
     struct TestData {
