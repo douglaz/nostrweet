@@ -222,7 +222,7 @@ mod tests {
                         let filename = entry.file_name();
                         let filename_str = filename.to_string_lossy();
 
-                        if filename_str.contains(&format!("_{}_profile.json", username)) {
+                        if filename_str.contains(&format!("_{username}_profile.json")) {
                             let content = fs::read_to_string(entry.path())?;
                             if let Ok(user) = serde_json::from_str::<User>(&content) {
                                 if user.username == username {
