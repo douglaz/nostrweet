@@ -68,13 +68,13 @@ pub fn derive_key_for_twitter_user_with_mnemonic(
 
 /// Derives a deterministic Nostr private key for a Twitter user
 /// using NIP-06 compliant BIP39/BIP32 derivation
-/// If mnemonic is None, reads from NOSTRWEET_MNEMONIC environment variable
+/// Requires mnemonic to be provided as a parameter
 pub fn derive_key_for_twitter_user(twitter_user_id: &str, mnemonic: Option<&str>) -> Result<Keys> {
     derive_key_for_twitter_user_with_mnemonic(twitter_user_id, mnemonic, None)
 }
 
 /// Creates a Keys instance by deriving from the Twitter user ID using NIP-06
-/// If mnemonic is None, reads from NOSTRWEET_MNEMONIC environment variable
+/// Requires mnemonic to be provided as a parameter
 pub fn get_keys_for_tweet(twitter_user_id: &str, mnemonic: Option<&str>) -> Result<Keys> {
     debug!("Deriving NIP-06 compliant key for Twitter user {twitter_user_id}");
     derive_key_for_twitter_user(twitter_user_id, mnemonic)

@@ -280,7 +280,6 @@ git config --unset core.hooksPath
 |----------|-------------|----------|---------|
 | `TWITTER_BEARER_TOKEN` | Twitter API bearer token | Yes | - |
 | `NOSTRWEET_DATA_DIR` | Data directory for all storage (tweets, media, profiles) | Yes (or use `-o` flag) | - |
-| `NOSTRWEET_CACHE_DIR` | Additional cache directory path | No | - |
 | `RUST_LOG` | Logging level | No | `info` |
 
 ## Contributing

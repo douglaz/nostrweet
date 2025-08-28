@@ -826,9 +826,9 @@ async fn post_tweet_to_nostr_with_state(
     };
 
     // Create resolver for mentions
-    let cache_dir = Some(state.config.data_dir.to_string_lossy().to_string());
+    let data_dir = Some(state.config.data_dir.to_string_lossy().to_string());
     let mut resolver =
-        crate::nostr_linking::NostrLinkResolver::new(cache_dir, state.config.mnemonic.clone());
+        crate::nostr_linking::NostrLinkResolver::new(data_dir, state.config.mnemonic.clone());
 
     // Format content
     let (content, mentioned_pubkeys) =

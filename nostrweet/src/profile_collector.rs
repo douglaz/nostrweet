@@ -77,12 +77,12 @@ pub fn collect_usernames_from_tweets(tweets: &[Tweet]) -> HashSet<String> {
 /// Filters out usernames that already have cached profiles
 pub async fn filter_uncached_usernames(
     usernames: HashSet<String>,
-    cache_dir: &Path,
+    data_dir: &Path,
 ) -> Result<Vec<String>> {
     let mut uncached = Vec::new();
 
     for username in usernames {
-        if find_latest_user_profile(&username, cache_dir)?.is_none() {
+        if find_latest_user_profile(&username, data_dir)?.is_none() {
             debug!("Profile for @{username} not found in cache, will download");
             uncached.push(username);
         } else {

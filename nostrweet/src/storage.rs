@@ -75,10 +75,10 @@ pub fn load_tweet_from_file(file_path: &Path) -> Result<Tweet> {
     Ok(tweet)
 }
 
-/// Checks if a tweet ID has been marked as "not found" in the cache.
-pub fn is_tweet_not_found(tweet_id: &str, cache_dir: &Path) -> bool {
+/// Checks if a tweet ID has been marked as "not found" in the data directory.
+pub fn is_tweet_not_found(tweet_id: &str, data_dir: &Path) -> bool {
     let filename = not_found_filename(tweet_id);
-    let file_path = sanitized_file_path(cache_dir, &filename);
+    let file_path = sanitized_file_path(data_dir, &filename);
     let exists = file_path.exists();
     if exists {
         debug!(
@@ -89,8 +89,7 @@ pub fn is_tweet_not_found(tweet_id: &str, cache_dir: &Path) -> bool {
     exists
 }
 
-/// Marks a tweet ID as "not found" in the cache by creating a .not_found file.
-/// Assumes cache_dir exists.
+/// Load a user profile from a JSON file.
 pub fn load_user_from_file(path: &Path) -> Result<User> {
     let file = std::fs::File::open(path)?;
     let reader = std::io::BufReader::new(file);
@@ -98,15 +97,15 @@ pub fn load_user_from_file(path: &Path) -> Result<User> {
     Ok(user)
 }
 
-/// Find the latest (highest) tweet ID for a specific user in the cache
-pub fn find_latest_tweet_id_for_user(username: &str, cache_dir: &Path) -> Result<Option<String>> {
-    let cache_dir_str = cache_dir
+/// Find the latest (highest) tweet ID for a specific user in the data directory
+pub fn find_latest_tweet_id_for_user(username: &str, data_dir: &Path) -> Result<Option<String>> {
+    let data_dir_str = data_dir
         .to_str()
-        .context("Cache directory path contains invalid UTF-8")?;
+        .context("Data directory path contains invalid UTF-8")?;
 
     // Pattern to match tweet files for this user
     // Format: YYYYMMDD_HHMMSS_username_tweetid.json
-    let glob_pattern = format!("{cache_dir_str}/*_{username}_*.json");
+    let glob_pattern = format!("{data_dir_str}/*_{username}_*.json");
 
     let mut latest_tweet_id: Option<String> = None;
 
@@ -142,11 +141,11 @@ pub fn find_latest_tweet_id_for_user(username: &str, cache_dir: &Path) -> Result
     Ok(latest_tweet_id)
 }
 
-pub fn find_latest_user_profile(username: &str, cache_dir: &Path) -> Result<Option<PathBuf>> {
-    let cache_dir_str = cache_dir
+pub fn find_latest_user_profile(username: &str, data_dir: &Path) -> Result<Option<PathBuf>> {
+    let data_dir_str = data_dir
         .to_str()
-        .context("Cache directory path contains invalid UTF-8")?;
-    let glob_pattern = format!("{cache_dir_str}/??????????????_{username}_*.json");
+        .context("Data directory path contains invalid UTF-8")?;
+    let glob_pattern = format!("{data_dir_str}/??????????????_{username}_*.json");
 
     let mut latest_file: Option<(chrono::NaiveDateTime, PathBuf)> = None;
 
@@ -211,9 +210,9 @@ pub fn save_nostr_event(event: &nostr_sdk::Event, data_dir: &Path) -> Result<Pat
     Ok(file_path)
 }
 
-pub fn mark_tweet_as_not_found(tweet_id: &str, cache_dir: &Path) -> Result<()> {
+pub fn mark_tweet_as_not_found(tweet_id: &str, data_dir: &Path) -> Result<()> {
     let filename = not_found_filename(tweet_id);
-    let file_path = sanitized_file_path(cache_dir, &filename);
+    let file_path = sanitized_file_path(data_dir, &filename);
 
     // Create an empty file. fs::write will create or truncate.
     fs::write(&file_path, "").with_context(|| {
