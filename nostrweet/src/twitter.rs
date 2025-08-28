@@ -574,7 +574,7 @@ impl TwitterClient {
     async fn get_tweet_internal(&self, tweet_id: &str) -> Result<Tweet> {
         // First check if we can find the tweet in any known directory
         // Use cache_dir as both output and cache dir for backward compatibility
-        let cache = self.cache_dir.as_ref().map(|p| p.as_path());
+        let cache = self.cache_dir.as_deref();
         let output = cache.unwrap_or(Path::new("./downloads"));
         if let Some(existing_path) =
             crate::storage::find_tweet_in_all_directories(tweet_id, output, cache)
