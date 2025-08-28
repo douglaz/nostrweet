@@ -2,34 +2,24 @@ use anyhow::{Context, Result};
 use bip39::{Language, Mnemonic};
 use nostr_sdk::Keys;
 use sha2::{Digest, Sha256};
-use std::env;
 use tracing::debug;
 
 /// Derives a deterministic Nostr private key for a Twitter user
 /// using NIP-06 compliant BIP39/BIP32 derivation
-///
-/// If mnemonic_str is None, reads from NOSTRWEET_MNEMONIC environment variable
 pub fn derive_key_for_twitter_user_with_mnemonic(
     twitter_user_id: &str,
     mnemonic_str: Option<&str>,
     passphrase: Option<&str>,
 ) -> Result<Keys> {
-    // Get the mnemonic from parameter or environment variable
-    let mnemonic_str = match mnemonic_str {
-        Some(m) => m.to_string(),
-        None => env::var("NOSTRWEET_MNEMONIC").context(
-            "NOSTRWEET_MNEMONIC environment variable not set. Please provide a BIP39 mnemonic phrase.",
-        )?,
-    };
+    // Get the mnemonic from parameter
+    let mnemonic_str = mnemonic_str
+        .ok_or_else(|| anyhow::anyhow!("Mnemonic not provided. Please use --mnemonic flag or NOSTRWEET_MNEMONIC environment variable."))?;
 
-    // Get passphrase from parameter or environment variable
-    let passphrase = match passphrase {
-        Some(p) => p.to_string(),
-        None => env::var("NOSTRWEET_PASSPHRASE").unwrap_or_default(),
-    };
+    // Get passphrase from parameter (default to empty string)
+    let passphrase = passphrase.unwrap_or("");
 
     // Parse the mnemonic
-    let mnemonic = Mnemonic::parse_in(Language::English, &mnemonic_str)
+    let mnemonic = Mnemonic::parse_in(Language::English, mnemonic_str)
         .context("Failed to parse mnemonic phrase. Please provide a valid BIP39 mnemonic.")?;
 
     // Convert Twitter user ID to account index
@@ -51,7 +41,7 @@ pub fn derive_key_for_twitter_user_with_mnemonic(
     // Derive keys using NIP-06 path: m/44'/1237'/<account>'/0/0
     // Since nostr-sdk doesn't expose from_mnemonic directly in Rust (it's mainly for bindings),
     // we need to use the seed and derive manually
-    let seed = mnemonic.to_seed(&passphrase);
+    let seed = mnemonic.to_seed(passphrase);
 
     // We'll use the seed directly as entropy for now since full BIP32 implementation
     // would require additional dependencies. For proper NIP-06, we should use
