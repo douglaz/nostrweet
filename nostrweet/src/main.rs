@@ -324,7 +324,6 @@ async fn main() -> Result<()> {
         Commands::FetchProfile { .. }
             | Commands::FetchTweet { .. }
             | Commands::UserTweets { .. }
-            | Commands::ShowTweet(_)
             | Commands::Daemon { .. }
     );
 
