@@ -8,8 +8,8 @@ use crate::datetime_utils::{format_for_display, from_unix_timestamp};
 use crate::twitter;
 
 /// List all downloaded tweets in the cache
-pub async fn execute(output_dir: &PathBuf) -> Result<()> {
-    let mut entries = fs::read_dir(output_dir)
+pub async fn execute(data_dir: &PathBuf) -> Result<()> {
+    let mut entries = fs::read_dir(data_dir)
         .await
         .context("Failed to read output directory")?;
 
@@ -28,7 +28,7 @@ pub async fn execute(output_dir: &PathBuf) -> Result<()> {
     }
 
     if tweet_files.is_empty() {
-        info!("No tweets found in {path}", path = output_dir.display());
+        info!("No tweets found in {path}", path = data_dir.display());
         return Ok(());
     }
 
@@ -58,7 +58,7 @@ pub async fn execute(output_dir: &PathBuf) -> Result<()> {
     println!(
         "Found {} tweets in {}",
         sorted_files.len(),
-        output_dir.display()
+        data_dir.display()
     );
     println!("{:-^80}", "");
 

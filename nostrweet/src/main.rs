@@ -27,13 +27,9 @@ mod twitter;
     long_about = "A CLI tool for downloading tweets and all associated media"
 )]
 struct Cli {
-    /// Directory to save the tweet and media
-    #[arg(short, long, env = "NOSTRWEET_OUTPUT_DIR", global = true)]
-    output_dir: Option<PathBuf>,
-
-    /// Cache directory for storing intermediate data
-    #[arg(short = 'c', long, env = "NOSTRWEET_CACHE_DIR", global = true)]
-    cache_dir: Option<PathBuf>,
+    /// Directory to save all data (tweets, media, profiles, etc.)
+    #[arg(short, long = "data-dir", env = "NOSTRWEET_DATA_DIR", global = true)]
+    data_dir: Option<PathBuf>,
 
     /// Twitter API bearer token for authentication
     #[arg(short = 'b', long, env = "TWITTER_BEARER_TOKEN", global = true)]
@@ -309,18 +305,17 @@ async fn main() -> Result<()> {
         debug!("Verbose mode enabled");
     }
 
-    // Get output directory, ensuring it's provided
-    let output_dir = args.output_dir.context(
-        "Output directory not specified. Please set --output-dir or NOSTRWEET_OUTPUT_DIR environment variable"
-    )?;
+    // Get data directory, ensuring it's provided (check old env var for backwards compatibility)
+    let data_dir = args.data_dir
+        .or_else(|| std::env::var("NOSTRWEET_OUTPUT_DIR").ok().map(PathBuf::from))
+        .context(
+            "Data directory not specified. Please set --data-dir or NOSTRWEET_DATA_DIR environment variable"
+        )?;
 
-    // Make sure output directory exists
-    if !output_dir.exists() {
-        std::fs::create_dir_all(&output_dir).context("Failed to create output directory")?;
-        info!(
-            "Created output directory: {path}",
-            path = output_dir.display()
-        );
+    // Make sure data directory exists
+    if !data_dir.exists() {
+        std::fs::create_dir_all(&data_dir).context("Failed to create data directory")?;
+        info!("Created data directory: {path}", path = data_dir.display());
     }
 
     // Determine if we need bearer token for the current command
@@ -342,18 +337,11 @@ async fn main() -> Result<()> {
         args.bearer_token
     };
 
-    // Get cache directory (defaults to output directory if not specified)
-    let cache_dir = args.cache_dir.as_ref().unwrap_or(&output_dir);
-
     // Handle subcommands
     match args.command {
         Commands::FetchProfile { username } => {
-            commands::fetch_profile::execute(
-                &username,
-                &output_dir,
-                bearer_token.as_deref().unwrap(),
-            )
-            .await?
+            commands::fetch_profile::execute(&username, &data_dir, bearer_token.as_deref().unwrap())
+                .await?
         }
         Commands::FetchTweet {
             tweet_url_or_id,
@@ -361,7 +349,7 @@ async fn main() -> Result<()> {
         } => {
             commands::fetch_tweet::execute(
                 &tweet_url_or_id,
-                &output_dir,
+                &data_dir,
                 skip_profiles,
                 bearer_token.as_deref().unwrap(),
             )
@@ -375,7 +363,7 @@ async fn main() -> Result<()> {
         } => {
             commands::user_tweets::execute(
                 &username,
-                &output_dir,
+                &data_dir,
                 Some(count),
                 days,
                 skip_profiles,
@@ -383,10 +371,8 @@ async fn main() -> Result<()> {
             )
             .await?
         }
-        Commands::ListTweets => commands::list_tweets::execute(&output_dir).await?,
-        Commands::ClearCache { force } => {
-            commands::clear_cache::execute(&output_dir, force).await?
-        }
+        Commands::ListTweets => commands::list_tweets::execute(&data_dir).await?,
+        Commands::ClearCache { force } => commands::clear_cache::execute(&data_dir, force).await?,
         Commands::PostTweetToNostr {
             tweet_url_or_id,
             relays,
@@ -398,11 +384,10 @@ async fn main() -> Result<()> {
                 &tweet_url_or_id,
                 &relays,
                 &blossom_servers,
-                &output_dir,
+                &data_dir,
                 force,
                 skip_profiles,
                 args.mnemonic.as_deref(),
-                Some(cache_dir),
                 bearer_token.as_deref(),
             )
             .await?
@@ -418,7 +403,7 @@ async fn main() -> Result<()> {
                 &username,
                 &relays,
                 &blossom_servers,
-                &output_dir,
+                &data_dir,
                 force,
                 skip_profiles,
                 args.mnemonic.as_deref(),
@@ -436,11 +421,10 @@ async fn main() -> Result<()> {
                 &tweet_url_or_id,
                 &relays,
                 &blossom_servers,
-                &output_dir,
+                &data_dir,
                 force,
                 skip_profiles,
                 args.mnemonic.as_deref(),
-                Some(cache_dir),
                 bearer_token.as_deref(),
             )
             .await?
@@ -449,7 +433,7 @@ async fn main() -> Result<()> {
             commands::post_profile_to_nostr::execute(
                 &username,
                 &relays,
-                &output_dir,
+                &data_dir,
                 args.mnemonic.as_deref(),
             )
             .await?
@@ -457,7 +441,7 @@ async fn main() -> Result<()> {
         Commands::UpdateRelayList { relays } => {
             commands::update_relay_list::execute(&relays, args.mnemonic.as_deref()).await?
         }
-        Commands::ShowTweet(cmd) => cmd.execute(&output_dir, bearer_token.as_deref()).await?,
+        Commands::ShowTweet(cmd) => cmd.execute(&data_dir, bearer_token.as_deref()).await?,
         Commands::Daemon {
             users,
             relays,
@@ -469,7 +453,7 @@ async fn main() -> Result<()> {
                 relays,
                 blossom_servers,
                 poll_interval,
-                &output_dir,
+                &data_dir,
                 args.mnemonic.as_deref(),
                 bearer_token.as_deref().unwrap(),
             )

@@ -460,10 +460,10 @@ pub async fn initialize_nostr_client(keys: &Keys, relays: &[String]) -> Result<C
 
 /// Check if a tweet has already been posted to Nostr
 pub async fn check_existing_nostr_event(
-    output_dir: &Path,
+    data_dir: &Path,
     tweet_id: &str,
 ) -> Result<Option<NostrEventInfo>> {
-    let nostr_dir = output_dir.join("nostr");
+    let nostr_dir = data_dir.join("nostr");
     let event_info_path = nostr_dir.join(format!("{tweet_id}.json"));
 
     if event_info_path.exists() {
@@ -483,9 +483,9 @@ pub async fn check_existing_nostr_event(
 /// Save Nostr event information to file
 pub async fn save_nostr_event_info(
     event_info: &NostrEventInfo,
-    output_dir: &Path,
+    data_dir: &Path,
 ) -> Result<PathBuf> {
-    let nostr_dir = output_dir.join("nostr");
+    let nostr_dir = data_dir.join("nostr");
 
     if !nostr_dir.exists() {
         fs::create_dir_all(&nostr_dir).await.with_context(|| {

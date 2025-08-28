@@ -12,12 +12,12 @@ use crate::twitter;
 ///
 /// # Arguments
 /// * `username` - Twitter username (with or without @ symbol)
-/// * `output_dir` - Directory to save tweets and media
+/// * `data_dir` - Directory to save tweets and media
 /// * `max_results` - Maximum number of tweets to fetch (default: 10)
 /// * `days` - Only fetch tweets from the last N days
 pub async fn execute(
     username: &str,
-    output_dir: &Path,
+    data_dir: &Path,
     max_results: Option<u32>,
     days: Option<u32>,
     skip_profiles: bool,
@@ -29,7 +29,7 @@ pub async fn execute(
     info!("Fetching recent tweets for user @{username}");
 
     // Create Twitter client
-    let client = twitter::TwitterClient::new(output_dir, bearer_token)
+    let client = twitter::TwitterClient::new(data_dir, bearer_token)
         .context("Failed to initialize Twitter client")?;
 
     // Fetch tweets from user's timeline
@@ -98,14 +98,14 @@ pub async fn execute(
 
         // Enrich referenced tweets (always)
         if let Err(e) = client
-            .enrich_referenced_tweets(&mut tweet_to_save, Some(output_dir))
+            .enrich_referenced_tweets(&mut tweet_to_save, Some(data_dir))
             .await
         {
             debug!("Failed to enrich referenced tweets for {tweet_id}: {e}");
         }
 
         // Download media for tweet and its references
-        let media_results = media::download_media(&tweet_to_save, output_dir)
+        let media_results = media::download_media(&tweet_to_save, data_dir)
             .await
             .with_context(|| format!("Failed to download media for tweet {tweet_id}"))?;
         let new_media = media_results.iter().filter(|r| !r.from_cache).count();
@@ -136,14 +136,14 @@ pub async fn execute(
         media_files_count += actual_media_count;
 
         // Save main tweet JSON if missing
-        if let Some(path) = storage::find_existing_tweet_json(tweet_id, output_dir) {
+        if let Some(path) = storage::find_existing_tweet_json(tweet_id, data_dir) {
             debug!(
                 "Tweet {tweet_id} already exists: {path}",
                 path = path.display()
             );
             skipped_count += 1;
         } else {
-            let saved_path = storage::save_tweet(&tweet_to_save, output_dir)
+            let saved_path = storage::save_tweet(&tweet_to_save, data_dir)
                 .with_context(|| format!("Failed to save tweet data for tweet {tweet_id}"))?;
             debug!("Saved tweet data to {path}", path = saved_path.display());
             processed_count += 1;
@@ -178,7 +178,7 @@ pub async fn execute(
 
     info!(
         "All tweets and media for @{username} successfully processed in {path}",
-        path = output_dir.display()
+        path = data_dir.display()
     );
 
     // Download profiles for all referenced users across all tweets (unless skipped)
@@ -191,10 +191,7 @@ pub async fn execute(
             );
 
             let username_vec: Vec<String> = all_usernames.into_iter().collect();
-            match client
-                .download_user_profiles(&username_vec, output_dir)
-                .await
-            {
+            match client.download_user_profiles(&username_vec, data_dir).await {
                 Ok(profiles) => {
                     if !profiles.is_empty() {
                         info!(

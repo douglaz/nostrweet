@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
 /// Find an existing tweet JSON file in the output directory
-pub fn find_existing_tweet_json(tweet_id: &str, output_dir: &Path) -> Option<PathBuf> {
-    if let Ok(entries) = fs::read_dir(output_dir) {
+pub fn find_existing_tweet_json(tweet_id: &str, data_dir: &Path) -> Option<PathBuf> {
+    if let Ok(entries) = fs::read_dir(data_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if let Some(extension) = path.extension() {
@@ -34,43 +34,12 @@ pub fn find_existing_tweet_json(tweet_id: &str, output_dir: &Path) -> Option<Pat
     None
 }
 
-/// Search for a tweet JSON file across all likely directories
-/// This is useful for finding referenced tweets that might be in different locations
-pub fn find_tweet_in_all_directories(
-    tweet_id: &str,
-    output_dir: &Path,
-    cache_dir: Option<&Path>,
-) -> Option<PathBuf> {
-    // List of directories to search in priority order
-    let search_dirs = vec![
-        // 1. Primary output directory
-        Some(output_dir.to_path_buf()),
-        // 2. Optional cache directory if different
-        cache_dir.map(PathBuf::from),
-    ];
-
-    // Search in each directory
-    for dir_option in search_dirs.into_iter().flatten() {
-        if dir_option.exists() {
-            if let Some(path) = find_existing_tweet_json(tweet_id, &dir_option) {
-                debug!(
-                    "Found tweet {tweet_id} in {dir}",
-                    dir = dir_option.display()
-                );
-                return Some(path);
-            }
-        }
-    }
-
-    None
-}
-
 /// Saves tweet data to a JSON file in the specified directory
-pub fn save_tweet(tweet: &Tweet, output_dir: &Path) -> Result<PathBuf> {
+pub fn save_tweet(tweet: &Tweet, data_dir: &Path) -> Result<PathBuf> {
     let tweet_id = &tweet.id;
 
     // Check if we already have a JSON file for this tweet
-    if let Some(existing_path) = find_existing_tweet_json(tweet_id, output_dir) {
+    if let Some(existing_path) = find_existing_tweet_json(tweet_id, data_dir) {
         info!(
             "Tweet JSON already exists, skipping save: {path}",
             path = existing_path.display()
@@ -81,7 +50,7 @@ pub fn save_tweet(tweet: &Tweet, output_dir: &Path) -> Result<PathBuf> {
     // Create a sanitized filename based on tweet ID, creation date, and author
     // Create filename using the tweet's date instead of current time
     let filename = tweet_filename(&tweet.created_at, &tweet.author.username, tweet_id)?;
-    let file_path = sanitized_file_path(output_dir, &filename);
+    let file_path = sanitized_file_path(data_dir, &filename);
 
     // Serialize tweet to JSON and write to file
     let json = serialize_to_json_with_context(tweet, "tweet")?;
@@ -201,14 +170,14 @@ pub fn find_latest_user_profile(username: &str, cache_dir: &Path) -> Result<Opti
 }
 
 /// Saves user profile data to a JSON file in the specified directory
-pub fn save_user_profile(user: &User, output_dir: &Path) -> Result<PathBuf> {
+pub fn save_user_profile(user: &User, data_dir: &Path) -> Result<PathBuf> {
     let user_id = &user.id;
     let username = &user.username;
 
     // Create a sanitized filename based on username and current date
     // Create filename using the current date, username, and user_id
     let filename = user_profile_filename(username, user_id);
-    let file_path = sanitized_file_path(output_dir, &filename);
+    let file_path = sanitized_file_path(data_dir, &filename);
 
     // Serialize user to JSON and write to file
     let json = serialize_to_json_with_context(user, "user profile")?;
@@ -223,11 +192,11 @@ pub fn save_user_profile(user: &User, output_dir: &Path) -> Result<PathBuf> {
 }
 
 /// Saves a Nostr event to a JSON file.
-pub fn save_nostr_event(event: &nostr_sdk::Event, output_dir: &Path) -> Result<PathBuf> {
+pub fn save_nostr_event(event: &nostr_sdk::Event, data_dir: &Path) -> Result<PathBuf> {
     let event_id = event.id.to_hex();
     let filename = nostr_event_filename(&event_id);
 
-    let nostr_events_dir = output_dir.join("nostr_events");
+    let nostr_events_dir = data_dir.join("nostr_events");
     if !nostr_events_dir.exists() {
         fs::create_dir_all(&nostr_events_dir).context("Failed to create nostr_events directory")?;
     }

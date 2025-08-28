@@ -11,21 +11,21 @@ use crate::profile_collector;
 use crate::storage;
 
 /// Find all tweet JSON files for a specific user in the output directory
-async fn find_user_tweets(username: &str, output_dir: &Path) -> Result<Vec<PathBuf>> {
+async fn find_user_tweets(username: &str, data_dir: &Path) -> Result<Vec<PathBuf>> {
     ensure!(
-        output_dir.exists(),
+        data_dir.exists(),
         "Output directory does not exist: {path}",
-        path = output_dir.display()
+        path = data_dir.display()
     );
 
     // Normalize the username for consistent matching
     let normalized_username = username.trim_start_matches('@').to_lowercase();
 
     // Read all entries in the directory
-    let entries = fs::read_dir(output_dir).with_context(|| {
+    let entries = fs::read_dir(data_dir).with_context(|| {
         format!(
             "Failed to read output directory: {path}",
-            path = output_dir.display()
+            path = data_dir.display()
         )
     })?;
 
@@ -83,7 +83,7 @@ pub async fn execute(
     username: &str,
     relays: &[String],
     blossom_servers: &[String],
-    output_dir: &Path,
+    data_dir: &Path,
     force: bool,
     skip_profiles: bool,
     mnemonic: Option<&str>,
@@ -97,7 +97,7 @@ pub async fn execute(
         username,
         relays,
         blossom_servers,
-        output_dir,
+        data_dir,
         options,
         mnemonic,
     )
@@ -109,7 +109,7 @@ pub async fn execute_with_options(
     username: &str,
     relays: &[String],
     blossom_servers: &[String],
-    output_dir: &Path,
+    data_dir: &Path,
     options: PostUserOptions,
     mnemonic: Option<&str>,
 ) -> Result<()> {
@@ -119,7 +119,7 @@ pub async fn execute_with_options(
     info!("Finding cached tweets for user @{username}");
 
     // Find all tweets for this user
-    let tweet_files = find_user_tweets(username, output_dir).await?;
+    let tweet_files = find_user_tweets(username, data_dir).await?;
 
     ensure!(
         !tweet_files.is_empty(),
@@ -251,11 +251,10 @@ pub async fn execute_with_options(
             &tweet_id,
             relays,
             blossom_servers,
-            output_dir,
+            data_dir,
             options.force,
             true, // Always skip profiles here, we'll post them all at once at the end
             mnemonic,
-            None, // Use default cache dir
             None, // Bearer token not needed for cached tweets
         )
         .await
@@ -345,7 +344,7 @@ pub async fn execute_with_options(
             let profiles_to_post = nostr_profile::filter_profiles_to_post(
                 all_referenced_users,
                 &client,
-                output_dir,
+                data_dir,
                 options.force,
                 mnemonic,
             )
@@ -356,7 +355,7 @@ pub async fn execute_with_options(
                 let posted_count = nostr_profile::post_referenced_profiles(
                     &profiles_to_post,
                     &client,
-                    output_dir,
+                    data_dir,
                     mnemonic,
                 )
                 .await?;

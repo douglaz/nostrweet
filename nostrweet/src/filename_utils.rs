@@ -33,9 +33,9 @@ pub fn media_filename(username: &str, media_key: &str, file_extension: &str) -> 
 }
 
 /// Sanitize and create full file path
-pub fn sanitized_file_path(output_dir: &Path, filename: &str) -> PathBuf {
+pub fn sanitized_file_path(data_dir: &Path, filename: &str) -> PathBuf {
     let sanitized_filename = sanitize(filename);
-    output_dir.join(sanitized_filename)
+    data_dir.join(sanitized_filename)
 }
 
 /// Generate a filename for Nostr event JSON files

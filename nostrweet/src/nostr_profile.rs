@@ -47,13 +47,13 @@ pub fn build_nostr_metadata_from_user(user: &twitter::User, username: &str) -> M
 async fn post_single_profile(
     username: &str,
     client: &nostr_sdk::Client,
-    output_dir: &Path,
+    data_dir: &Path,
     mnemonic: Option<&str>,
 ) -> Result<EventId> {
     debug!("Attempting to post profile for @{username} to Nostr");
 
     // Find the latest profile for the user
-    let profile_path = storage::find_latest_user_profile(username, output_dir)?
+    let profile_path = storage::find_latest_user_profile(username, data_dir)?
         .ok_or_else(|| anyhow::anyhow!("No profile found for user '{username}'"))?;
 
     debug!(
@@ -78,7 +78,7 @@ async fn post_single_profile(
         .context("Failed to build metadata event")?;
 
     // Save the event locally
-    storage::save_nostr_event(&event, output_dir)
+    storage::save_nostr_event(&event, data_dir)
         .context("Failed to save nostr profile event locally")?;
 
     // Publish the event
@@ -100,7 +100,7 @@ async fn post_single_profile(
 pub async fn post_referenced_profiles(
     usernames: &HashSet<String>,
     client: &nostr_sdk::Client,
-    output_dir: &Path,
+    data_dir: &Path,
     mnemonic: Option<&str>,
 ) -> Result<usize> {
     if usernames.is_empty() {
@@ -116,7 +116,7 @@ pub async fn post_referenced_profiles(
     let mut failed_count = 0;
 
     for username in usernames {
-        match post_single_profile(username, client, output_dir, mnemonic).await {
+        match post_single_profile(username, client, data_dir, mnemonic).await {
             Ok(event_id) => {
                 debug!("Posted profile for @{username} with event ID: {event_id:?}");
                 posted_count += 1;
@@ -145,7 +145,7 @@ pub async fn post_referenced_profiles(
 pub async fn filter_profiles_to_post(
     usernames: HashSet<String>,
     client: &nostr_sdk::Client,
-    output_dir: &Path,
+    data_dir: &Path,
     force: bool,
     mnemonic: Option<&str>,
 ) -> Result<HashSet<String>> {
@@ -158,13 +158,13 @@ pub async fn filter_profiles_to_post(
 
     for username in usernames {
         // Check if profile exists locally
-        if storage::find_latest_user_profile(&username, output_dir)?.is_none() {
+        if storage::find_latest_user_profile(&username, data_dir)?.is_none() {
             debug!("Profile for @{username} not found locally, skipping");
             continue;
         }
 
         // Load the user profile to get the user ID
-        let profile_path = storage::find_latest_user_profile(&username, output_dir)?
+        let profile_path = storage::find_latest_user_profile(&username, data_dir)?
             .ok_or_else(|| anyhow::anyhow!("Profile path disappeared for {username}"))?;
 
         let user = storage::load_user_from_file(&profile_path)?;

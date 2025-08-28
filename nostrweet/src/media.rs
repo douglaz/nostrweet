@@ -123,7 +123,7 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
 }
 
 /// Downloads all media from a tweet to the specified directory
-pub async fn download_media(tweet: &Tweet, output_dir: &Path) -> Result<Vec<MediaResult>> {
+pub async fn download_media(tweet: &Tweet, data_dir: &Path) -> Result<Vec<MediaResult>> {
     let mut media_files = Vec::new();
     let client = create_http_client_with_context()?;
 
@@ -131,7 +131,7 @@ pub async fn download_media(tweet: &Tweet, output_dir: &Path) -> Result<Vec<Medi
     if let Some(includes) = &tweet.includes {
         if let Some(media_items) = &includes.media {
             for media in media_items.iter() {
-                match download_media_item(&client, media, tweet, output_dir).await {
+                match download_media_item(&client, media, tweet, data_dir).await {
                     Ok(result) => media_files.push(result),
                     Err(e) => {
                         warn!(
@@ -163,13 +163,8 @@ pub async fn download_media(tweet: &Tweet, output_dir: &Path) -> Result<Vec<Medi
                 if let Some(includes) = &original_tweet.includes {
                     if let Some(media_items) = &includes.media {
                         for media_item in media_items.iter() {
-                            match download_media_item(
-                                &client,
-                                media_item,
-                                original_tweet,
-                                output_dir,
-                            )
-                            .await
+                            match download_media_item(&client, media_item, original_tweet, data_dir)
+                                .await
                             {
                                 Ok(result) => media_files.push(result),
                                 Err(e) => {
@@ -441,7 +436,7 @@ async fn download_media_item(
     client: &Client,
     media: &TwitterMedia,
     tweet: &Tweet,
-    output_dir: &Path,
+    data_dir: &Path,
 ) -> Result<MediaResult> {
     let download_url = determine_download_url(media)?;
     let file_extension = get_file_extension(&media.type_field);
@@ -451,7 +446,7 @@ async fn download_media_item(
 
     // Include tweet author in the filename for better organization, but use media_key as the main identifier
     let filename = media_filename(&tweet.author.username, media_key, file_extension);
-    let file_path = sanitized_file_path(output_dir, &filename);
+    let file_path = sanitized_file_path(data_dir, &filename);
 
     // Check if we already have this file cached
     if let Some(cached_result) = check_media_cache(&file_path).await? {

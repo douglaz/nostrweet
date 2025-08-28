@@ -28,7 +28,7 @@ pub struct ShowTweetCommand {
 }
 
 impl ShowTweetCommand {
-    pub async fn execute(self, output_dir: &Path, bearer_token: Option<&str>) -> Result<()> {
+    pub async fn execute(self, data_dir: &Path, bearer_token: Option<&str>) -> Result<()> {
         // Parse tweet ID from input (could be ID or URL)
         let tweet_id = twitter::parse_tweet_id(&self.tweet).with_context(|| {
             format!("Failed to parse tweet ID from: {tweet}", tweet = self.tweet)
@@ -38,7 +38,7 @@ impl ShowTweetCommand {
 
         // Check if tweet already exists in cache
         let tweet = if let Some(existing_path) =
-            storage::find_existing_tweet_json(&tweet_id, output_dir)
+            storage::find_existing_tweet_json(&tweet_id, data_dir)
         {
             info!(
                 "Found cached tweet at: {path}",
@@ -51,7 +51,7 @@ impl ShowTweetCommand {
             // Create Twitter client and fetch tweet
             let bearer = bearer_token
                 .ok_or_else(|| anyhow::anyhow!("Bearer token required for downloading tweets"))?;
-            let client = twitter::TwitterClient::new(output_dir, bearer)
+            let client = twitter::TwitterClient::new(data_dir, bearer)
                 .context("Failed to initialize Twitter client")?;
 
             let mut downloaded_tweet = client
@@ -61,14 +61,14 @@ impl ShowTweetCommand {
 
             // Enrich the tweet with referenced tweet data
             if let Err(e) = client
-                .enrich_referenced_tweets(&mut downloaded_tweet, Some(output_dir))
+                .enrich_referenced_tweets(&mut downloaded_tweet, Some(data_dir))
                 .await
             {
                 debug!("Failed to enrich referenced tweets: {e}");
             }
 
             // Save to cache
-            let save_path = storage::save_tweet(&downloaded_tweet, output_dir)?;
+            let save_path = storage::save_tweet(&downloaded_tweet, data_dir)?;
             info!("Saved tweet to: {path}", path = save_path.display());
 
             downloaded_tweet

@@ -6,22 +6,20 @@ pub async fn execute(
     tweet_url_or_id: &str,
     relays: &[String],
     blossom_servers: &[String],
-    output_dir: &Path,
+    data_dir: &Path,
     force: bool,
     skip_profiles: bool,
     mnemonic: Option<&str>,
-    cache_dir: Option<&Path>,
     bearer_token: Option<&str>,
 ) -> Result<()> {
     super::post_tweet_to_nostr::execute(
         tweet_url_or_id,
         relays,
         blossom_servers,
-        output_dir,
+        data_dir,
         force,
         skip_profiles,
         mnemonic,
-        cache_dir,
         bearer_token,
     )
     .await

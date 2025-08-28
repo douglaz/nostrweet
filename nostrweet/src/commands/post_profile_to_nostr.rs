@@ -9,7 +9,7 @@ use crate::{keys, nostr, nostr_profile, storage};
 pub async fn execute(
     username: &str,
     relays: &[String],
-    output_dir: &Path,
+    data_dir: &Path,
     mnemonic: Option<&str>,
 ) -> Result<()> {
     info!(
@@ -18,7 +18,7 @@ pub async fn execute(
     );
 
     // Find the latest profile for the user
-    let latest_profile_path = storage::find_latest_user_profile(username, output_dir)
+    let latest_profile_path = storage::find_latest_user_profile(username, data_dir)
         .context("Failed to find latest user profile")?;
 
     let Some(profile_path) = latest_profile_path else {
@@ -53,7 +53,7 @@ pub async fn execute(
         .context("Failed to build metadata event")?;
 
     // Save the event locally before publishing
-    storage::save_nostr_event(&event, output_dir).context("Failed to save nostr event locally")?;
+    storage::save_nostr_event(&event, data_dir).context("Failed to save nostr event locally")?;
 
     // Publish the event
     let event_id = client
