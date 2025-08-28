@@ -583,9 +583,13 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
         }
 
         // Download media
-        let _media_results = crate::media::download_media(&enriched_tweet, &state.config.data_dir)
-            .await
-            .with_context(|| format!("Failed to download media for tweet {tweet_id}"))?;
+        let _media_results = crate::media::download_media(
+            &enriched_tweet,
+            &state.config.data_dir,
+            Some(&state.config.bearer_token),
+        )
+        .await
+        .with_context(|| format!("Failed to download media for tweet {tweet_id}"))?;
 
         // Save tweet
         storage::save_tweet(&enriched_tweet, &state.config.data_dir)?;

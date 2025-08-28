@@ -123,7 +123,11 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
 }
 
 /// Downloads all media from a tweet to the specified directory
-pub async fn download_media(tweet: &Tweet, data_dir: &Path) -> Result<Vec<MediaResult>> {
+pub async fn download_media(
+    tweet: &Tweet,
+    data_dir: &Path,
+    bearer_token: Option<&str>,
+) -> Result<Vec<MediaResult>> {
     let mut media_files = Vec::new();
     let client = create_http_client_with_context()?;
 
@@ -131,7 +135,7 @@ pub async fn download_media(tweet: &Tweet, data_dir: &Path) -> Result<Vec<MediaR
     if let Some(includes) = &tweet.includes {
         if let Some(media_items) = &includes.media {
             for media in media_items.iter() {
-                match download_media_item(&client, media, tweet, data_dir).await {
+                match download_media_item(&client, media, tweet, data_dir, bearer_token).await {
                     Ok(result) => media_files.push(result),
                     Err(e) => {
                         warn!(
@@ -163,8 +167,14 @@ pub async fn download_media(tweet: &Tweet, data_dir: &Path) -> Result<Vec<MediaR
                 if let Some(includes) = &original_tweet.includes {
                     if let Some(media_items) = &includes.media {
                         for media_item in media_items.iter() {
-                            match download_media_item(&client, media_item, original_tweet, data_dir)
-                                .await
+                            match download_media_item(
+                                &client,
+                                media_item,
+                                original_tweet,
+                                data_dir,
+                                bearer_token,
+                            )
+                            .await
                             {
                                 Ok(result) => media_files.push(result),
                                 Err(e) => {
@@ -437,6 +447,7 @@ async fn download_media_item(
     media: &TwitterMedia,
     tweet: &Tweet,
     data_dir: &Path,
+    bearer_token: Option<&str>,
 ) -> Result<MediaResult> {
     let download_url = determine_download_url(media)?;
     let file_extension = get_file_extension(&media.type_field);
@@ -464,8 +475,7 @@ async fn download_media_item(
         type_field = media.type_field
     );
 
-    // TODO: Thread bearer_token through download_media_item and download_media functions
-    let req_builder = build_media_request(client, download_url, &media.type_field, None)?;
+    let req_builder = build_media_request(client, download_url, &media.type_field, bearer_token)?;
 
     // Debug: log the prepared request headers to diagnose 403
     if let Some(rb) = req_builder.try_clone() {

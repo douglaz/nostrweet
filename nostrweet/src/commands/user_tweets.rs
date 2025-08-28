@@ -105,7 +105,7 @@ pub async fn execute(
         }
 
         // Download media for tweet and its references
-        let media_results = media::download_media(&tweet_to_save, data_dir)
+        let media_results = media::download_media(&tweet_to_save, data_dir, Some(bearer_token))
             .await
             .with_context(|| format!("Failed to download media for tweet {tweet_id}"))?;
         let new_media = media_results.iter().filter(|r| !r.from_cache).count();

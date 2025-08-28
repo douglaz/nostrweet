@@ -60,7 +60,7 @@ pub async fn execute(
     };
 
     // Download media
-    let media_results = media::download_media(&tweet, data_dir)
+    let media_results = media::download_media(&tweet, data_dir, Some(bearer_token))
         .await
         .context("Failed to download media")?;
 
