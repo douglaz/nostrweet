@@ -53,6 +53,7 @@ pub fn create_nostr_event_tags(
     Ok(tags)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn execute(
     tweet_url_or_id: &str,
     relays: &[String],

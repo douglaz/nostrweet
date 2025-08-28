@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn execute(
     tweet_url_or_id: &str,
     relays: &[String],
