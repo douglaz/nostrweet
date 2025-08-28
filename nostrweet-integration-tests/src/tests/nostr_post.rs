@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use nostr_sdk::prelude::*;
 use nostr_sdk::Event;
+use nostr_sdk::prelude::*;
 use serde_json::json;
 use std::fs;
 use tracing::{debug, info};

@@ -1,4 +1,4 @@
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 // No Keys import needed as we're using it through the keys module
 use std::path::Path;
 use tokio::fs;
@@ -334,7 +334,9 @@ pub async fn execute(
         // Parse the tweet's creation date
         // First check if the tweet has a creation date
         if tweet.created_at.is_empty() {
-            bail!("No creation date found in tweet - cannot create Nostr event without a valid timestamp");
+            bail!(
+                "No creation date found in tweet - cannot create Nostr event without a valid timestamp"
+            );
         }
 
         // Parse the ISO 8601 date into a timestamp

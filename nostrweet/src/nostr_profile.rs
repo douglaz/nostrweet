@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use nostr_sdk::{prelude::*, Metadata};
+use nostr_sdk::{Metadata, prelude::*};
 use std::collections::HashSet;
 use std::path::Path;
 use tracing::{debug, info};

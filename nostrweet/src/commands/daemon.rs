@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::signal;
-use tokio::sync::{oneshot, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, oneshot};
 use tokio::time;
 use tracing::{debug, error, info, trace, warn};
 
@@ -314,7 +314,9 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
                                 reset_time,
                                 remaining,
                             } => {
-                                warn!("Rate limit detected for @{username}, will back off until {reset_time:?} (remaining: {remaining:?})");
+                                warn!(
+                                    "Rate limit detected for @{username}, will back off until {reset_time:?} (remaining: {remaining:?})"
+                                );
                             }
                             TwitterError::UserNotFound { username: user } => {
                                 error!("User @{user} not found, will continue retrying");
@@ -469,7 +471,9 @@ async fn process_user_v2(state: DaemonState, username: String) -> Result<()> {
                     stats.total_tweets_posted += posted;
 
                     if *downloaded > 0 || *posted > 0 {
-                        info!("User @{username}: downloaded {downloaded} tweets, posted {posted} to Nostr");
+                        info!(
+                            "User @{username}: downloaded {downloaded} tweets, posted {posted} to Nostr"
+                        );
                     }
                 }
                 Err(e) => {

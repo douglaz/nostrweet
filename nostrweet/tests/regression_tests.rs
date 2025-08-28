@@ -1033,8 +1033,11 @@ async fn test_douglaz_planet_apes_reply_full_nostr_event() {
     // Verify content formatting
     let content = &event.content;
     assert!(content.contains("🐦 @douglaz:"));
-    assert!(content
-        .contains("@AMAZlNGNATURE So if we want Planet of Apes to happen, we know what to do..."));
+    assert!(
+        content.contains(
+            "@AMAZlNGNATURE So if we want Planet of Apes to happen, we know what to do..."
+        )
+    );
     assert!(content.contains("Original tweet: https://twitter.com/i/status/1929221881929843016"));
 
     // Verify tags
@@ -1590,7 +1593,8 @@ async fn test_show_tweet_with_image_media() {
         .matches("https://pbs.twimg.com/media/GwamxuaXYAARXmF.jpg")
         .count();
     pretty_assertions::assert_eq!(
-        image_url_count, 1,
+        image_url_count,
+        1,
         "Nostr content should contain exactly one instance of the image URL (no duplication): {nostr_content}"
     );
 

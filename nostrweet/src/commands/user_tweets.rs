@@ -127,7 +127,9 @@ pub async fn execute(
         } else if actual_media_count == expected_media_count {
             debug!("Tweet {tweet_id}: All {actual_media_count} media item(s) processed.");
         } else {
-            debug!("Tweet {tweet_id}: {actual_media_count} out of {expected_media_count} media item(s) processed.");
+            debug!(
+                "Tweet {tweet_id}: {actual_media_count} out of {expected_media_count} media item(s) processed."
+            );
         }
 
         media_files_count += actual_media_count;

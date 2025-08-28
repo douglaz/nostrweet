@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 /// File I/O error handling utilities
 /// JSON serialization/parsing error handling utilities
@@ -93,7 +93,7 @@ mod tests {
         assert!(result.is_none());
 
         // Set a test env var
-        std::env::set_var("TEST_VAR", "test_value");
+        unsafe { std::env::set_var("TEST_VAR", "test_value") };
         let result = get_optional_env_var("TEST_VAR");
         assert_eq!(result, Some("test_value".to_string()));
     }

@@ -1,13 +1,13 @@
 use crate::error_utils::{create_http_client_with_context, get_optional_env_var};
 use crate::filename_utils::{media_filename, sanitized_file_path};
 use crate::twitter::{Media as TwitterMedia, Tweet};
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result, ensure};
 use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use reqwest::Client;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use tokio::fs::{metadata, File};
+use tokio::fs::{File, metadata};
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::StreamReader;
 use tracing::{debug, info, warn};

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use nostr_sdk::prelude::*;
 use nostr_sdk::Event;
+use nostr_sdk::prelude::*;
 use tracing::{debug, info};
 
 use crate::test_runner::TestContext;

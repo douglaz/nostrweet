@@ -1,14 +1,14 @@
 use crate::nostr_linking::NostrLinkResolver;
-use anyhow::{bail, Context, Result};
-use base64::engine::general_purpose::STANDARD;
+use anyhow::{Context, Result, bail};
 use base64::Engine;
-use nostr_sdk::nips::nip65::RelayMetadata;
+use base64::engine::general_purpose::STANDARD;
 use nostr_sdk::ToBech32;
+use nostr_sdk::nips::nip65::RelayMetadata;
 use nostr_sdk::{
     Alphabet, Client, Event, EventBuilder, Filter, Keys, Kind, PublicKey, RelayUrl,
     SingleLetterTag, SubscriptionId, Tag, Timestamp, Url,
 };
-use reqwest::{header::RETRY_AFTER, StatusCode};
+use reqwest::{StatusCode, header::RETRY_AFTER};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -382,7 +382,9 @@ pub async fn upload_media_to_blossom(
                                 upload_success = true;
                                 debug!("Successfully uploaded to Blossom server: {server_url}");
                             } else {
-                                warn!("Blossom response missing URL field and nip94_event url tag: {json}");
+                                warn!(
+                                    "Blossom response missing URL field and nip94_event url tag: {json}"
+                                );
                             }
                         } else {
                             warn!("Blossom server error {status}", status = r.status());

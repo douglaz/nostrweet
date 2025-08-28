@@ -1,8 +1,8 @@
 use crate::error_utils::{
     create_http_client_with_context, get_required_env_var, parse_http_response_json,
 };
-use anyhow::{bail, Context, Result};
-use backoff::{backoff::Backoff, ExponentialBackoffBuilder};
+use anyhow::{Context, Result, bail};
+use backoff::{ExponentialBackoffBuilder, backoff::Backoff};
 use regex::Regex;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -299,7 +299,9 @@ impl TwitterClient {
                         let sleep_duration =
                             self.calculate_sleep_duration_with_jitter(backoff_time);
 
-                        debug!("Network timeout connecting to Twitter API for {resource_id}. Retrying in {sleep_duration:?} (attempt {attempt}/{max_attempts})");
+                        debug!(
+                            "Network timeout connecting to Twitter API for {resource_id}. Retrying in {sleep_duration:?} (attempt {attempt}/{max_attempts})"
+                        );
                         tokio::time::sleep(sleep_duration).await;
                         continue;
                     } else {
@@ -318,7 +320,10 @@ impl TwitterClient {
                 attempt += 1;
 
                 if attempt >= max_attempts {
-                    debug!("Maximum retry attempts ({max_attempts}) reached for {resource_id}, rate limit reset: {rate_limit_reset:?}", rate_limit_reset = rate_limits.reset);
+                    debug!(
+                        "Maximum retry attempts ({max_attempts}) reached for {resource_id}, rate limit reset: {rate_limit_reset:?}",
+                        rate_limit_reset = rate_limits.reset
+                    );
                     return Err(TwitterError::RateLimit {
                         reset_time: rate_limits.reset,
                         remaining: rate_limits.remaining,
@@ -366,20 +371,24 @@ impl TwitterClient {
                 let sleep_duration =
                     self.calculate_sleep_duration_with_jitter(Duration::from_secs(base_wait_secs));
 
-                info!("Rate limited by Twitter API for {resource_id}. Limit: {limit:?}, Remaining: {remaining:?}, Reset: {reset:?}. Retrying in {sleep_duration:?} (attempt {attempt}/{max_attempts})",
-                      limit = rate_limits.limit,
-                      remaining = rate_limits.remaining,
-                      reset = rate_limits.reset);
+                info!(
+                    "Rate limited by Twitter API for {resource_id}. Limit: {limit:?}, Remaining: {remaining:?}, Reset: {reset:?}. Retrying in {sleep_duration:?} (attempt {attempt}/{max_attempts})",
+                    limit = rate_limits.limit,
+                    remaining = rate_limits.remaining,
+                    reset = rate_limits.reset
+                );
                 tokio::time::sleep(sleep_duration).await;
                 continue;
             }
 
             // Check for other errors
             if response.status().is_success() {
-                debug!("Received Twitter API response for {resource_id} with limits: {limit:?}/{remaining:?} until {reset:?}",
-                       limit = rate_limits.limit,
-                       remaining = rate_limits.remaining,
-                       reset = rate_limits.reset);
+                debug!(
+                    "Received Twitter API response for {resource_id} with limits: {limit:?}/{remaining:?} until {reset:?}",
+                    limit = rate_limits.limit,
+                    remaining = rate_limits.remaining,
+                    reset = rate_limits.reset
+                );
             } else {
                 let status_code = response.status().as_u16();
                 let error_message = format!(
@@ -848,8 +857,10 @@ impl TwitterClient {
                 .take(requested_count as usize)
                 .collect());
         } else if !cached_tweets.is_empty() {
-            debug!("Found {cached_count} cached tweets for user {username}, but need {requested_count}",
-                cached_count = cached_tweets.len());
+            debug!(
+                "Found {cached_count} cached tweets for user {username}, but need {requested_count}",
+                cached_count = cached_tweets.len()
+            );
         }
 
         // If we get here, we need to fetch from the API
@@ -921,7 +932,9 @@ impl TwitterClient {
         let tweet_count = tweets.len();
         match tweet_count.cmp(&(requested_count as usize)) {
             std::cmp::Ordering::Less => {
-                debug!("Returning {tweet_count} tweets for user {username} (requested {requested_count})");
+                debug!(
+                    "Returning {tweet_count} tweets for user {username} (requested {requested_count})"
+                );
             }
             std::cmp::Ordering::Equal => {
                 debug!(
@@ -1116,7 +1129,9 @@ impl TwitterClient {
         let base = format!("{TWITTER_API_BASE}/users/{user_id}/tweets?max_results={max_results}");
 
         // Build URL with common parameters
-        let params = format!("&expansions={COMMON_EXPANSIONS}&media.fields={COMMON_MEDIA_FIELDS}&tweet.fields={COMMON_TWEET_FIELDS}&user.fields={COMMON_USER_FIELDS}");
+        let params = format!(
+            "&expansions={COMMON_EXPANSIONS}&media.fields={COMMON_MEDIA_FIELDS}&tweet.fields={COMMON_TWEET_FIELDS}&user.fields={COMMON_USER_FIELDS}"
+        );
 
         // Add pagination token if provided
         let token_param =

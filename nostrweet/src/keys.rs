@@ -77,10 +77,12 @@ mod tests {
     #[test]
     fn test_derive_key_for_twitter_user() -> Result<()> {
         // Set test mnemonic
-        env::set_var(
-            "NOSTRWEET_MNEMONIC",
-            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-        );
+        unsafe {
+            env::set_var(
+                "NOSTRWEET_MNEMONIC",
+                "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            );
+        }
 
         // Test that same user ID produces same keys
         let keys1 = derive_key_for_twitter_user("123456")?;
@@ -97,10 +99,12 @@ mod tests {
     #[test]
     fn test_get_keys_for_tweet() -> Result<()> {
         // Set test mnemonic
-        env::set_var(
-            "NOSTRWEET_MNEMONIC",
-            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-        );
+        unsafe {
+            env::set_var(
+                "NOSTRWEET_MNEMONIC",
+                "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            );
+        }
 
         // Test that get_keys_for_tweet derives correctly
         let keys = get_keys_for_tweet("123456")?;
@@ -114,10 +118,12 @@ mod tests {
 
     #[test]
     fn test_deterministic_account_mapping() -> Result<()> {
-        env::set_var(
-            "NOSTRWEET_MNEMONIC",
-            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
-        );
+        unsafe {
+            env::set_var(
+                "NOSTRWEET_MNEMONIC",
+                "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            );
+        }
 
         // Test that numeric Twitter IDs map consistently
         let test_cases = vec![
