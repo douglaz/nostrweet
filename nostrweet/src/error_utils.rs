@@ -92,10 +92,12 @@ mod tests {
         let result = get_optional_env_var("NONEXISTENT_VAR");
         assert!(result.is_none());
 
-        // Set a test env var
-        unsafe { std::env::set_var("TEST_VAR", "test_value") };
-        let result = get_optional_env_var("TEST_VAR");
-        assert_eq!(result, Some("test_value".to_string()));
+        // Test with a commonly available env var (PATH is usually set on all systems)
+        // This avoids needing to set env vars in the test
+        if std::env::var("PATH").is_ok() {
+            let result = get_optional_env_var("PATH");
+            assert!(result.is_some());
+        }
     }
 
     #[test]

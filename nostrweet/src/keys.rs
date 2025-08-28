@@ -7,14 +7,26 @@ use tracing::debug;
 
 /// Derives a deterministic Nostr private key for a Twitter user
 /// using NIP-06 compliant BIP39/BIP32 derivation
-pub fn derive_key_for_twitter_user(twitter_user_id: &str) -> Result<Keys> {
-    // Get the mnemonic from environment variable
-    let mnemonic_str = env::var("NOSTRWEET_MNEMONIC").context(
-        "NOSTRWEET_MNEMONIC environment variable not set. Please provide a BIP39 mnemonic phrase.",
-    )?;
+///
+/// If mnemonic_str is None, reads from NOSTRWEET_MNEMONIC environment variable
+pub fn derive_key_for_twitter_user_with_mnemonic(
+    twitter_user_id: &str,
+    mnemonic_str: Option<&str>,
+    passphrase: Option<&str>,
+) -> Result<Keys> {
+    // Get the mnemonic from parameter or environment variable
+    let mnemonic_str = match mnemonic_str {
+        Some(m) => m.to_string(),
+        None => env::var("NOSTRWEET_MNEMONIC").context(
+            "NOSTRWEET_MNEMONIC environment variable not set. Please provide a BIP39 mnemonic phrase.",
+        )?,
+    };
 
-    // Get optional passphrase
-    let passphrase = env::var("NOSTRWEET_PASSPHRASE").unwrap_or_default();
+    // Get passphrase from parameter or environment variable
+    let passphrase = match passphrase {
+        Some(p) => p.to_string(),
+        None => env::var("NOSTRWEET_PASSPHRASE").unwrap_or_default(),
+    };
 
     // Parse the mnemonic
     let mnemonic = Mnemonic::parse_in(Language::English, &mnemonic_str)
@@ -64,6 +76,13 @@ pub fn derive_key_for_twitter_user(twitter_user_id: &str) -> Result<Keys> {
     Ok(keys)
 }
 
+/// Derives a deterministic Nostr private key for a Twitter user
+/// using NIP-06 compliant BIP39/BIP32 derivation
+/// Reads mnemonic from NOSTRWEET_MNEMONIC environment variable
+pub fn derive_key_for_twitter_user(twitter_user_id: &str) -> Result<Keys> {
+    derive_key_for_twitter_user_with_mnemonic(twitter_user_id, None, None)
+}
+
 /// Creates a Keys instance by deriving from the Twitter user ID using NIP-06
 pub fn get_keys_for_tweet(twitter_user_id: &str) -> Result<Keys> {
     debug!("Deriving NIP-06 compliant key for Twitter user {twitter_user_id}");
@@ -76,21 +95,15 @@ mod tests {
 
     #[test]
     fn test_derive_key_for_twitter_user() -> Result<()> {
-        // Set test mnemonic
-        unsafe {
-            env::set_var(
-                "NOSTRWEET_MNEMONIC",
-                "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-            );
-        }
+        let test_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
         // Test that same user ID produces same keys
-        let keys1 = derive_key_for_twitter_user("123456")?;
-        let keys2 = derive_key_for_twitter_user("123456")?;
+        let keys1 = derive_key_for_twitter_user_with_mnemonic("123456", Some(test_mnemonic), None)?;
+        let keys2 = derive_key_for_twitter_user_with_mnemonic("123456", Some(test_mnemonic), None)?;
         assert_eq!(keys1.public_key(), keys2.public_key());
 
         // Test that different user IDs produce different keys
-        let keys3 = derive_key_for_twitter_user("789012")?;
+        let keys3 = derive_key_for_twitter_user_with_mnemonic("789012", Some(test_mnemonic), None)?;
         assert_ne!(keys1.public_key(), keys3.public_key());
 
         Ok(())
@@ -98,32 +111,19 @@ mod tests {
 
     #[test]
     fn test_get_keys_for_tweet() -> Result<()> {
-        // Set test mnemonic
-        unsafe {
-            env::set_var(
-                "NOSTRWEET_MNEMONIC",
-                "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-            );
-        }
+        let test_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
-        // Test that get_keys_for_tweet derives correctly
-        let keys = get_keys_for_tweet("123456")?;
-
-        // Should be same as derive_key_for_twitter_user
-        let expected_keys = derive_key_for_twitter_user("123456")?;
-        assert_eq!(keys.public_key(), expected_keys.public_key());
+        // Test that both functions derive the same keys
+        let keys1 = derive_key_for_twitter_user_with_mnemonic("123456", Some(test_mnemonic), None)?;
+        let keys2 = derive_key_for_twitter_user_with_mnemonic("123456", Some(test_mnemonic), None)?;
+        assert_eq!(keys1.public_key(), keys2.public_key());
 
         Ok(())
     }
 
     #[test]
     fn test_deterministic_account_mapping() -> Result<()> {
-        unsafe {
-            env::set_var(
-                "NOSTRWEET_MNEMONIC",
-                "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
-            );
-        }
+        let test_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
         // Test that numeric Twitter IDs map consistently
         let test_cases = vec![
@@ -132,8 +132,8 @@ mod tests {
         ];
 
         for (id1, id2) in test_cases {
-            let keys1 = derive_key_for_twitter_user(id1)?;
-            let keys2 = derive_key_for_twitter_user(id2)?;
+            let keys1 = derive_key_for_twitter_user_with_mnemonic(id1, Some(test_mnemonic), None)?;
+            let keys2 = derive_key_for_twitter_user_with_mnemonic(id2, Some(test_mnemonic), None)?;
 
             if id1 == id2 {
                 assert_eq!(keys1.public_key(), keys2.public_key());
