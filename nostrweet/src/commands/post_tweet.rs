@@ -8,6 +8,7 @@ pub async fn execute(
     output_dir: &Path,
     force: bool,
     skip_profiles: bool,
+    mnemonic: Option<&str>,
 ) -> Result<()> {
     super::post_tweet_to_nostr::execute(
         tweet_url_or_id,
@@ -16,6 +17,7 @@ pub async fn execute(
         output_dir,
         force,
         skip_profiles,
+        mnemonic,
     )
     .await
     .context("Failed to post tweet to Nostr")

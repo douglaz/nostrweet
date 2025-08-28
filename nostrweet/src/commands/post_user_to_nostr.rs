@@ -86,13 +86,22 @@ pub async fn execute(
     output_dir: &Path,
     force: bool,
     skip_profiles: bool,
+    mnemonic: Option<&str>,
 ) -> Result<()> {
     let options = PostUserOptions {
         force,
         skip_profiles,
         ..Default::default()
     };
-    execute_with_options(username, relays, blossom_servers, output_dir, options).await
+    execute_with_options(
+        username,
+        relays,
+        blossom_servers,
+        output_dir,
+        options,
+        mnemonic,
+    )
+    .await
 }
 
 /// Post all cached tweets for a user to Nostr relays with advanced filtering options
@@ -102,6 +111,7 @@ pub async fn execute_with_options(
     blossom_servers: &[String],
     output_dir: &Path,
     options: PostUserOptions,
+    mnemonic: Option<&str>,
 ) -> Result<()> {
     // Clean username (remove @ if present)
     let username = username.trim_start_matches('@');
@@ -244,6 +254,7 @@ pub async fn execute_with_options(
             output_dir,
             options.force,
             true, // Always skip profiles here, we'll post them all at once at the end
+            mnemonic,
         )
         .await
         {
@@ -325,7 +336,7 @@ pub async fn execute_with_options(
         // Only proceed if we have a user ID
         if let Some(uid) = user_id {
             // Initialize Nostr client with the user's keys
-            let keys = crate::keys::get_keys_for_tweet(&uid)?;
+            let keys = crate::keys::get_keys_for_tweet(&uid, mnemonic)?;
             let client = nostr::initialize_nostr_client(&keys, relays).await?;
 
             // Filter profiles that need to be posted
@@ -334,14 +345,19 @@ pub async fn execute_with_options(
                 &client,
                 output_dir,
                 options.force,
+                mnemonic,
             )
             .await?;
 
             if !profiles_to_post.is_empty() {
                 // Post the profiles
-                let posted_count =
-                    nostr_profile::post_referenced_profiles(&profiles_to_post, &client, output_dir)
-                        .await?;
+                let posted_count = nostr_profile::post_referenced_profiles(
+                    &profiles_to_post,
+                    &client,
+                    output_dir,
+                    mnemonic,
+                )
+                .await?;
 
                 if posted_count > 0 {
                     info!("Posted {posted_count} referenced user profiles to Nostr");

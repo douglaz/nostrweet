@@ -21,6 +21,7 @@ pub struct DaemonConfig {
     pub blossom_servers: Vec<String>,
     pub poll_interval: u64,
     pub output_dir: std::path::PathBuf,
+    pub mnemonic: Option<String>,
 }
 
 /// Per-user state tracking
@@ -134,6 +135,7 @@ pub async fn execute(
     blossom_servers: Vec<String>,
     poll_interval: u64,
     output_dir: &Path,
+    mnemonic: Option<&str>,
 ) -> Result<()> {
     info!(
         "Starting daemon v2 for {user_count} users with {poll_interval} second base interval",
@@ -146,6 +148,7 @@ pub async fn execute(
         blossom_servers,
         poll_interval,
         output_dir: output_dir.to_path_buf(),
+        mnemonic: mnemonic.map(|s| s.to_string()),
     });
 
     // Initialize daemon state
@@ -531,7 +534,10 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
                 let cached_tweet = storage::load_tweet_from_file(&tweet_path)?;
 
                 // Get keys for this tweet's author
-                let keys = crate::keys::get_keys_for_tweet(&cached_tweet.author.id)?;
+                let keys = crate::keys::get_keys_for_tweet(
+                    &cached_tweet.author.id,
+                    state.config.mnemonic.as_deref(),
+                )?;
 
                 // Check if already posted to Nostr by querying the relay
                 if !is_tweet_posted_to_nostr(tweet_id, &state.nostr_client, &keys).await? {
@@ -550,6 +556,7 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
                                 &referenced_usernames,
                                 &state.nostr_client,
                                 &state.config.output_dir,
+                                state.config.mnemonic.as_deref(),
                             )
                             .await;
                         }
@@ -592,7 +599,10 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
         }
 
         // Check if already posted to Nostr before attempting to post
-        let keys = crate::keys::get_keys_for_tweet(&enriched_tweet.author.id)?;
+        let keys = crate::keys::get_keys_for_tweet(
+            &enriched_tweet.author.id,
+            state.config.mnemonic.as_deref(),
+        )?;
 
         if !is_tweet_posted_to_nostr(tweet_id, &state.nostr_client, &keys).await? {
             // Post to Nostr
@@ -608,6 +618,7 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
                         &referenced_usernames,
                         &state.nostr_client,
                         &state.config.output_dir,
+                        state.config.mnemonic.as_deref(),
                     )
                     .await;
                 }
@@ -791,7 +802,7 @@ async fn post_tweet_to_nostr_with_state(
     let tweet_id = &tweet.id;
 
     // Get keys for the tweet
-    let keys = crate::keys::get_keys_for_tweet(&tweet.author.id)?;
+    let keys = crate::keys::get_keys_for_tweet(&tweet.author.id, state.config.mnemonic.as_deref())?;
 
     // Extract media URLs
     let tweet_media_urls = media::extract_media_urls_from_tweet(tweet);
@@ -813,7 +824,8 @@ async fn post_tweet_to_nostr_with_state(
 
     // Create resolver for mentions
     let cache_dir = Some(state.config.output_dir.to_string_lossy().to_string());
-    let mut resolver = crate::nostr_linking::NostrLinkResolver::new(cache_dir);
+    let mut resolver =
+        crate::nostr_linking::NostrLinkResolver::new(cache_dir, state.config.mnemonic.clone());
 
     // Format content
     let (content, mentioned_pubkeys) =

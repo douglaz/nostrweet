@@ -31,6 +31,10 @@ struct Cli {
     #[arg(short, long, env = "NOSTRWEET_OUTPUT_DIR", global = true)]
     output_dir: Option<PathBuf>,
 
+    /// BIP39 mnemonic phrase for deriving Nostr keys
+    #[arg(short = 'm', long, env = "NOSTRWEET_MNEMONIC", global = true)]
+    mnemonic: Option<String>,
+
     /// Verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
@@ -347,6 +351,7 @@ async fn main() -> Result<()> {
                 &output_dir,
                 force,
                 skip_profiles,
+                args.mnemonic.as_deref(),
             )
             .await?
         }
@@ -364,6 +369,7 @@ async fn main() -> Result<()> {
                 &output_dir,
                 force,
                 skip_profiles,
+                args.mnemonic.as_deref(),
             )
             .await?
         }
@@ -381,14 +387,21 @@ async fn main() -> Result<()> {
                 &output_dir,
                 force,
                 skip_profiles,
+                args.mnemonic.as_deref(),
             )
             .await?
         }
         Commands::PostProfileToNostr { username, relays } => {
-            commands::post_profile_to_nostr::execute(&username, &relays, &output_dir).await?
+            commands::post_profile_to_nostr::execute(
+                &username,
+                &relays,
+                &output_dir,
+                args.mnemonic.as_deref(),
+            )
+            .await?
         }
         Commands::UpdateRelayList { relays } => {
-            commands::update_relay_list::execute(&relays).await?
+            commands::update_relay_list::execute(&relays, args.mnemonic.as_deref()).await?
         }
         Commands::ShowTweet(cmd) => cmd.execute(&output_dir).await?,
         Commands::Daemon {
@@ -397,8 +410,15 @@ async fn main() -> Result<()> {
             blossom_servers,
             poll_interval,
         } => {
-            commands::daemon::execute(users, relays, blossom_servers, poll_interval, &output_dir)
-                .await?
+            commands::daemon::execute(
+                users,
+                relays,
+                blossom_servers,
+                poll_interval,
+                &output_dir,
+                args.mnemonic.as_deref(),
+            )
+            .await?
         }
         Commands::Utils { command } => match command {
             UtilsCommands::QueryEvents {

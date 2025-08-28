@@ -1105,7 +1105,7 @@ fn format_reply_tweet(
 ) {
     if let Some(ref_data) = &ref_tweet.data {
         // Legacy formatter without mention resolution
-        let mut dummy_resolver = NostrLinkResolver::new(None);
+        let mut dummy_resolver = NostrLinkResolver::new(None, None);
         let formatter = TweetFormatter {
             tweet: ref_data,
             media_urls: &[],
@@ -1215,7 +1215,7 @@ fn format_quote_tweet(
 ) {
     if let Some(ref_data) = &ref_tweet.data {
         // Legacy formatter without mention resolution
-        let mut dummy_resolver = NostrLinkResolver::new(None);
+        let mut dummy_resolver = NostrLinkResolver::new(None, None);
         let formatter = TweetFormatter {
             tweet: ref_data,
             media_urls: &[],
@@ -1390,7 +1390,7 @@ fn format_retweet(
 
         // Process the retweeted content
         // Legacy formatter without mention resolution
-        let mut dummy_resolver = NostrLinkResolver::new(None);
+        let mut dummy_resolver = NostrLinkResolver::new(None, None);
         let formatter = TweetFormatter {
             tweet: ref_data,
             media_urls: &[],
@@ -1520,7 +1520,7 @@ fn add_referenced_tweets(
                         username = ref_data.author.username
                     ));
                     // Legacy formatter without mention resolution
-                    let mut dummy_resolver = NostrLinkResolver::new(None);
+                    let mut dummy_resolver = NostrLinkResolver::new(None, None);
                     let formatter = TweetFormatter {
                         tweet: ref_data,
                         media_urls: &[],
@@ -1612,30 +1612,6 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     const TEST_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-
-    /// Test wrapper for NostrLinkResolver that uses test mnemonic
-    struct TestResolver {
-        inner: NostrLinkResolver,
-    }
-
-    impl TestResolver {
-        fn new() -> Self {
-            Self {
-                inner: NostrLinkResolver::new(None),
-            }
-        }
-
-        fn add_known_user(&mut self, username: &str, user_id: &str) -> Result<()> {
-            self.inner
-                .add_known_user_with_mnemonic(username, user_id, TEST_MNEMONIC)
-        }
-
-        fn as_mut(&mut self) -> &mut NostrLinkResolver {
-            // Pre-populate the resolver with test users using test mnemonic
-            // This is a workaround since we can't override add_known_user when called internally
-            &mut self.inner
-        }
-    }
 
     fn create_test_tweet() -> Tweet {
         Tweet {
@@ -1746,14 +1722,14 @@ mod tests {
     #[test]
     fn test_process_mentions_in_text() -> Result<()> {
         let tweet = create_test_tweet_with_mentions();
-        let mut test_resolver = TestResolver::new();
+        let mut resolver = NostrLinkResolver::new(None, Some(TEST_MNEMONIC.to_string()));
 
         // Add known users to resolver
-        test_resolver.add_known_user("alice", "111111")?;
-        test_resolver.add_known_user("bob", "222222")?;
+        resolver.add_known_user("alice", "111111")?;
+        resolver.add_known_user("bob", "222222")?;
 
         let (processed_text, mentioned_pubkeys) =
-            process_mentions_in_text(&tweet.text, tweet.entities.as_ref(), test_resolver.as_mut())?;
+            process_mentions_in_text(&tweet.text, tweet.entities.as_ref(), &mut resolver)?;
 
         // Check that mentions were converted to nostr: links
         assert!(processed_text.contains("nostr:npub"));
@@ -1769,7 +1745,7 @@ mod tests {
     #[test]
     fn test_process_mentions_unknown_users() -> Result<()> {
         let tweet = create_test_tweet_with_mentions();
-        let mut resolver = NostrLinkResolver::new(None);
+        let mut resolver = NostrLinkResolver::new(None, None);
 
         // Don't add users to resolver - they should remain as @mentions
         let (processed_text, mentioned_pubkeys) =
@@ -1789,22 +1765,16 @@ mod tests {
     #[test]
     fn test_format_tweet_with_mentions() -> Result<()> {
         let tweet = create_test_tweet_with_mentions();
-        let mut test_resolver = TestResolver::new();
+        let mut resolver = NostrLinkResolver::new(None, Some(TEST_MNEMONIC.to_string()));
 
         // Add known users - need to pre-populate before passing to format function
         // because it will internally call add_known_user which uses env vars
-        test_resolver.add_known_user("alice", "111111")?;
-        test_resolver.add_known_user("bob", "222222")?;
-        test_resolver.add_known_user("testuser", "987654321")?; // Pre-add tweet author
-
-        // Also add directly to inner resolver to ensure it's available when
-        // format_tweet_as_nostr_content_with_mentions calls add_known_user internally
-        test_resolver
-            .inner
-            .add_known_user_with_mnemonic("testuser", "987654321", TEST_MNEMONIC)?;
+        resolver.add_known_user("alice", "111111")?;
+        resolver.add_known_user("bob", "222222")?;
+        resolver.add_known_user("testuser", "987654321")?; // Pre-add tweet author
 
         let (content, mentioned_pubkeys) =
-            format_tweet_as_nostr_content_with_mentions(&tweet, &[], test_resolver.as_mut())?;
+            format_tweet_as_nostr_content_with_mentions(&tweet, &[], &mut resolver)?;
 
         // Check content structure
         assert!(content.contains("🐦 @testuser:"));
@@ -1849,21 +1819,15 @@ mod tests {
             data: Some(Box::new(reply_tweet)),
         }]);
 
-        let mut test_resolver = TestResolver::new();
+        let mut resolver = NostrLinkResolver::new(None, Some(TEST_MNEMONIC.to_string()));
 
         // Add known users including the replied-to user
-        test_resolver.add_known_user("alice", "111111")?;
-        test_resolver.add_known_user("replyuser", "333333")?;
-        test_resolver.add_known_user("testuser", "987654321")?; // The main tweet author
-
-        // Also add directly to inner resolver to ensure it's available when
-        // format_tweet_as_nostr_content_with_mentions calls add_known_user internally
-        test_resolver
-            .inner
-            .add_known_user_with_mnemonic("testuser", "987654321", TEST_MNEMONIC)?;
+        resolver.add_known_user("alice", "111111")?;
+        resolver.add_known_user("replyuser", "333333")?;
+        resolver.add_known_user("testuser", "987654321")?; // The main tweet author
 
         let (content, mentioned_pubkeys) =
-            format_tweet_as_nostr_content_with_mentions(&main_tweet, &[], test_resolver.as_mut())?;
+            format_tweet_as_nostr_content_with_mentions(&main_tweet, &[], &mut resolver)?;
 
         // Check that reply header contains nostr link
         assert!(content.contains("↩️ Reply to nostr:npub"));

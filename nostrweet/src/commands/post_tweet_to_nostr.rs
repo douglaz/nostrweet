@@ -60,6 +60,7 @@ pub async fn execute(
     output_dir: &Path,
     force: bool,
     skip_profiles: bool,
+    mnemonic: Option<&str>,
 ) -> Result<()> {
     // Parse tweet ID from URL or ID string
     let tweet_id = twitter::parse_tweet_id(tweet_url_or_id)
@@ -179,7 +180,7 @@ pub async fn execute(
     debug!("Using Twitter user ID: {twitter_user_id}");
 
     // Initialize Nostr keys - either from provided private key or derive from Twitter user ID
-    let keys = keys::get_keys_for_tweet(&twitter_user_id)?;
+    let keys = keys::get_keys_for_tweet(&twitter_user_id, mnemonic)?;
 
     debug!(
         "Using Nostr public key: {pubkey}",
@@ -293,7 +294,8 @@ pub async fn execute(
         .ok();
 
     // Create a resolver for Twitter username to Nostr pubkey mapping
-    let mut resolver = crate::nostr_linking::NostrLinkResolver::new(cache_dir);
+    let mut resolver =
+        crate::nostr_linking::NostrLinkResolver::new(cache_dir, mnemonic.map(|s| s.to_string()));
 
     // Format tweet content for Nostr with mention resolution
     let (content, mentioned_pubkeys) =
@@ -472,15 +474,20 @@ pub async fn execute(
             );
 
             // Filter profiles that need to be posted
-            let profiles_to_post =
-                nostr_profile::filter_profiles_to_post(usernames, &client, output_dir, force)
-                    .await?;
+            let profiles_to_post = nostr_profile::filter_profiles_to_post(
+                usernames, &client, output_dir, force, mnemonic,
+            )
+            .await?;
 
             if !profiles_to_post.is_empty() {
                 // Post the profiles
-                let posted_count =
-                    nostr_profile::post_referenced_profiles(&profiles_to_post, &client, output_dir)
-                        .await?;
+                let posted_count = nostr_profile::post_referenced_profiles(
+                    &profiles_to_post,
+                    &client,
+                    output_dir,
+                    mnemonic,
+                )
+                .await?;
 
                 if posted_count > 0 {
                     info!("Posted {posted_count} referenced user profiles to Nostr");
