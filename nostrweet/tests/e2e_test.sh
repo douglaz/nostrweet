@@ -166,7 +166,7 @@ log "Fetching tweet $TWEET_ID and posting to Nostr..."
 OUTPUT_DIR="$TEST_DIR/downloads"
 
 ./target/release/nostrweet fetch-tweet \
-    --output-dir "$OUTPUT_DIR" \
+    --data-dir "$OUTPUT_DIR" \
     "$TWEET_ID" || {
     error "Failed to fetch tweet"
     exit 1
@@ -186,7 +186,7 @@ log "Posting tweet to Nostr relay..."
 ./target/release/nostrweet post-tweet-to-nostr \
     --private-key "$PRIVATE_KEY" \
     --relays "ws://localhost:$RELAY_PORT" \
-    --output-dir "$OUTPUT_DIR" \
+    --data-dir "$OUTPUT_DIR" \
     "$TWEET_ID" || {
     error "Failed to post tweet to Nostr"
     exit 1
@@ -301,7 +301,7 @@ log "Testing tweet with media..."
 MEDIA_TWEET_ID="1580661436132073472"  # Example tweet with image
 
 ./target/release/nostrweet fetch-tweet \
-    --output-dir "$OUTPUT_DIR" \
+    --data-dir "$OUTPUT_DIR" \
     "$MEDIA_TWEET_ID" || {
     warn "Failed to fetch media tweet (might be deleted/protected)"
 }
@@ -313,7 +313,7 @@ if [ -n "$MEDIA_TWEET_FILE" ]; then
     ./target/release/nostrweet post-tweet-to-nostr \
         --private-key "$PRIVATE_KEY" \
         --relays "ws://localhost:$RELAY_PORT" \
-        --output-dir "$OUTPUT_DIR" \
+        --data-dir "$OUTPUT_DIR" \
         "$MEDIA_TWEET_ID" || {
         warn "Failed to post media tweet to Nostr"
     }

@@ -1164,7 +1164,7 @@ async fn test_show_tweet_output_separation() {
             "--",
             "show-tweet",
             "1929266300380967406",
-            "--output-dir",
+            "--data-dir",
             temp_dir.path().to_str().unwrap(),
         ])
         .output()
@@ -1250,7 +1250,7 @@ async fn test_show_tweet_stdout_is_pure_json() {
             "--",
             "show-tweet",
             "1645195402788892674",
-            "--output-dir",
+            "--data-dir",
             temp_dir.path().to_str().unwrap(),
         ])
         .output()
@@ -1325,7 +1325,7 @@ async fn test_show_tweet_pretty_formatting() {
             "--",
             "show-tweet",
             "1929221881929843016",
-            "--output-dir",
+            "--data-dir",
             temp_dir.path().to_str().unwrap(),
             "--pretty",
         ])
@@ -1352,7 +1352,7 @@ async fn test_show_tweet_pretty_formatting() {
             "--",
             "show-tweet",
             "1929221881929843016",
-            "--output-dir",
+            "--data-dir",
             temp_dir.path().to_str().unwrap(),
             "--compact",
         ])
@@ -1550,7 +1550,7 @@ async fn test_show_tweet_with_image_media() {
             "--",
             "show-tweet",
             "1947427270152626319",
-            "--output-dir",
+            "--data-dir",
             temp_dir.path().to_str().unwrap(),
         ])
         .output()
@@ -1710,7 +1710,7 @@ async fn test_show_tweet_with_referenced_tweet_media() {
             "--",
             "show-tweet",
             "1946563939120169182",
-            "--output-dir",
+            "--data-dir",
             temp_dir.path().to_str().unwrap(),
         ])
         .output()
