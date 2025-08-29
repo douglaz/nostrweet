@@ -1,19 +1,24 @@
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use nostr_sdk::prelude::*;
 use tracing::{debug, info};
 
 use crate::{keys, nostr, nostr_profile, storage};
 
-pub async fn execute(username: &str, relays: &[String], output_dir: &Path) -> Result<()> {
+pub async fn execute(
+    username: &str,
+    relays: &[String],
+    data_dir: &Path,
+    mnemonic: Option<&str>,
+) -> Result<()> {
     info!(
         "Attempting to post profile for user '{}' to Nostr.",
         username
     );
 
     // Find the latest profile for the user
-    let latest_profile_path = storage::find_latest_user_profile(username, output_dir)
+    let latest_profile_path = storage::find_latest_user_profile(username, data_dir)
         .context("Failed to find latest user profile")?;
 
     let Some(profile_path) = latest_profile_path else {
@@ -33,7 +38,7 @@ pub async fn execute(username: &str, relays: &[String], output_dir: &Path) -> Re
         storage::load_user_from_file(&profile_path).context("Failed to load user profile")?;
 
     // Get Nostr keys
-    let keys = keys::get_keys_for_tweet(&user.id)?;
+    let keys = keys::get_keys_for_tweet(&user.id, mnemonic)?;
 
     // Initialize Nostr client
     let client = nostr::initialize_nostr_client(&keys, relays).await?;
@@ -48,7 +53,7 @@ pub async fn execute(username: &str, relays: &[String], output_dir: &Path) -> Re
         .context("Failed to build metadata event")?;
 
     // Save the event locally before publishing
-    storage::save_nostr_event(&event, output_dir).context("Failed to save nostr event locally")?;
+    storage::save_nostr_event(&event, data_dir).context("Failed to save nostr event locally")?;
 
     // Publish the event
     let event_id = client

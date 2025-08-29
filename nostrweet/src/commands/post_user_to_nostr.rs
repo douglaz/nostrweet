@@ -1,4 +1,4 @@
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result, ensure};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,21 +11,21 @@ use crate::profile_collector;
 use crate::storage;
 
 /// Find all tweet JSON files for a specific user in the output directory
-async fn find_user_tweets(username: &str, output_dir: &Path) -> Result<Vec<PathBuf>> {
+async fn find_user_tweets(username: &str, data_dir: &Path) -> Result<Vec<PathBuf>> {
     ensure!(
-        output_dir.exists(),
+        data_dir.exists(),
         "Output directory does not exist: {path}",
-        path = output_dir.display()
+        path = data_dir.display()
     );
 
     // Normalize the username for consistent matching
     let normalized_username = username.trim_start_matches('@').to_lowercase();
 
     // Read all entries in the directory
-    let entries = fs::read_dir(output_dir).with_context(|| {
+    let entries = fs::read_dir(data_dir).with_context(|| {
         format!(
             "Failed to read output directory: {path}",
-            path = output_dir.display()
+            path = data_dir.display()
         )
     })?;
 
@@ -83,16 +83,25 @@ pub async fn execute(
     username: &str,
     relays: &[String],
     blossom_servers: &[String],
-    output_dir: &Path,
+    data_dir: &Path,
     force: bool,
     skip_profiles: bool,
+    mnemonic: Option<&str>,
 ) -> Result<()> {
     let options = PostUserOptions {
         force,
         skip_profiles,
         ..Default::default()
     };
-    execute_with_options(username, relays, blossom_servers, output_dir, options).await
+    execute_with_options(
+        username,
+        relays,
+        blossom_servers,
+        data_dir,
+        options,
+        mnemonic,
+    )
+    .await
 }
 
 /// Post all cached tweets for a user to Nostr relays with advanced filtering options
@@ -100,8 +109,9 @@ pub async fn execute_with_options(
     username: &str,
     relays: &[String],
     blossom_servers: &[String],
-    output_dir: &Path,
+    data_dir: &Path,
     options: PostUserOptions,
+    mnemonic: Option<&str>,
 ) -> Result<()> {
     // Clean username (remove @ if present)
     let username = username.trim_start_matches('@');
@@ -109,7 +119,7 @@ pub async fn execute_with_options(
     info!("Finding cached tweets for user @{username}");
 
     // Find all tweets for this user
-    let tweet_files = find_user_tweets(username, output_dir).await?;
+    let tweet_files = find_user_tweets(username, data_dir).await?;
 
     ensure!(
         !tweet_files.is_empty(),
@@ -241,9 +251,11 @@ pub async fn execute_with_options(
             &tweet_id,
             relays,
             blossom_servers,
-            output_dir,
+            data_dir,
             options.force,
             true, // Always skip profiles here, we'll post them all at once at the end
+            mnemonic,
+            None, // Bearer token not needed for cached tweets
         )
         .await
         {
@@ -325,23 +337,28 @@ pub async fn execute_with_options(
         // Only proceed if we have a user ID
         if let Some(uid) = user_id {
             // Initialize Nostr client with the user's keys
-            let keys = crate::keys::get_keys_for_tweet(&uid)?;
+            let keys = crate::keys::get_keys_for_tweet(&uid, mnemonic)?;
             let client = nostr::initialize_nostr_client(&keys, relays).await?;
 
             // Filter profiles that need to be posted
             let profiles_to_post = nostr_profile::filter_profiles_to_post(
                 all_referenced_users,
                 &client,
-                output_dir,
+                data_dir,
                 options.force,
+                mnemonic,
             )
             .await?;
 
             if !profiles_to_post.is_empty() {
                 // Post the profiles
-                let posted_count =
-                    nostr_profile::post_referenced_profiles(&profiles_to_post, &client, output_dir)
-                        .await?;
+                let posted_count = nostr_profile::post_referenced_profiles(
+                    &profiles_to_post,
+                    &client,
+                    data_dir,
+                    mnemonic,
+                )
+                .await?;
 
                 if posted_count > 0 {
                     info!("Posted {posted_count} referenced user profiles to Nostr");

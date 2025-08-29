@@ -1,4 +1,4 @@
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 // No Keys import needed as we're using it through the keys module
 use std::path::Path;
 use tokio::fs;
@@ -53,13 +53,16 @@ pub fn create_nostr_event_tags(
     Ok(tags)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn execute(
     tweet_url_or_id: &str,
     relays: &[String],
     blossom_servers: &[String],
-    output_dir: &Path,
+    data_dir: &Path,
     force: bool,
     skip_profiles: bool,
+    mnemonic: Option<&str>,
+    bearer_token: Option<&str>,
 ) -> Result<()> {
     // Parse tweet ID from URL or ID string
     let tweet_id = twitter::parse_tweet_id(tweet_url_or_id)
@@ -68,7 +71,7 @@ pub async fn execute(
     info!("Processing tweet {tweet_id} for Nostr publishing");
 
     // Check if we already have a Nostr event for this tweet
-    if let Some(event_info) = nostr::check_existing_nostr_event(output_dir, &tweet_id).await? {
+    if let Some(event_info) = nostr::check_existing_nostr_event(data_dir, &tweet_id).await? {
         if force {
             info!(
                 "Force flag enabled: Overwriting existing Nostr event for tweet {tweet_id} (previous event ID: {event_id})",
@@ -86,7 +89,7 @@ pub async fn execute(
 
     // First, check if we have already downloaded the tweet
     let mut tweet =
-        if let Some(existing_path) = storage::find_existing_tweet_json(&tweet_id, output_dir) {
+        if let Some(existing_path) = storage::find_existing_tweet_json(&tweet_id, data_dir) {
             debug!(
                 "Found existing tweet data at {path}",
                 path = existing_path.display()
@@ -97,7 +100,9 @@ pub async fn execute(
             // If not, download it first
             debug!("Tweet {tweet_id} not found locally, downloading it first");
 
-            let client = twitter::TwitterClient::new(output_dir)
+            let bearer = bearer_token
+                .ok_or_else(|| anyhow::anyhow!("Bearer token required to download tweet"))?;
+            let client = twitter::TwitterClient::new(data_dir, bearer)
                 .context("Failed to initialize Twitter client")?;
 
             let tweet = client
@@ -106,7 +111,7 @@ pub async fn execute(
                 .with_context(|| format!("Failed to download tweet {tweet_id}"))?;
 
             // Save the tweet locally
-            let saved_path = storage::save_tweet(&tweet, output_dir)
+            let saved_path = storage::save_tweet(&tweet, data_dir)
                 .with_context(|| format!("Failed to save tweet data for {tweet_id}"))?;
             debug!("Saved tweet data to {path}", path = saved_path.display());
 
@@ -120,25 +125,13 @@ pub async fn execute(
             for ref_tweet in ref_tweets {
                 if ref_tweet.data.is_none() {
                     debug!(
-                        "Looking for referenced tweet {id} in output_dir: {dir}",
+                        "Looking for referenced tweet {id} in data_dir: {dir}",
                         id = ref_tweet.id,
-                        dir = output_dir.display()
+                        dir = data_dir.display()
                     );
 
                     // First check in the current output directory
-                    let mut existing_path =
-                        storage::find_existing_tweet_json(&ref_tweet.id, output_dir);
-
-                    // If not found, check in all other directories
-                    if existing_path.is_none() {
-                        debug!(
-                            "Referenced tweet {id} not found in output_dir, checking other directories",
-                            id = ref_tweet.id
-                        );
-                        existing_path = storage::find_tweet_in_all_directories(&ref_tweet.id);
-                    }
-
-                    if let Some(path) = existing_path {
+                    if let Some(path) = storage::find_existing_tweet_json(&ref_tweet.id, data_dir) {
                         match storage::load_tweet_from_file(&path) {
                             Ok(referenced_tweet) => {
                                 debug!(
@@ -179,7 +172,7 @@ pub async fn execute(
     debug!("Using Twitter user ID: {twitter_user_id}");
 
     // Initialize Nostr keys - either from provided private key or derive from Twitter user ID
-    let keys = keys::get_keys_for_tweet(&twitter_user_id)?;
+    let keys = keys::get_keys_for_tweet(&twitter_user_id, mnemonic)?;
 
     debug!(
         "Using Nostr public key: {pubkey}",
@@ -217,21 +210,23 @@ pub async fn execute(
     // If we suspect there's a video but don't have direct media URLs, fetch extended media
     if need_extended_media {
         debug!("Fetching extended media information for tweet {tweet_id}");
-        let twitter_client_result = twitter::TwitterClient::new(output_dir);
-        if let Ok(twitter_client_instance) = twitter_client_result {
-            let extended_tweet = twitter_client_instance
-                .get_tweet_with_media(&tweet_id)
-                .await
-                .context("Failed to fetch tweet with extended media")?;
+        if let Some(bearer) = bearer_token {
+            let twitter_client_result = twitter::TwitterClient::new(data_dir, bearer);
+            if let Ok(twitter_client_instance) = twitter_client_result {
+                let extended_tweet = twitter_client_instance
+                    .get_tweet_with_media(&tweet_id)
+                    .await
+                    .context("Failed to fetch tweet with extended media")?;
 
-            // Re-extract media URLs from the extended tweet information
-            tweet_media_urls = media::extract_media_urls_from_tweet(&extended_tweet);
-            debug!(
-                "After fetching extended media, found {} media URLs",
-                tweet_media_urls.len()
-            );
-        } else {
-            debug!("Failed to initialize Twitter client for extended media fetch");
+                // Re-extract media URLs from the extended tweet information
+                tweet_media_urls = media::extract_media_urls_from_tweet(&extended_tweet);
+                debug!(
+                    "After fetching extended media, found {} media URLs",
+                    tweet_media_urls.len()
+                );
+            } else {
+                debug!("Failed to initialize Twitter client for extended media fetch");
+            }
         }
     }
 
@@ -245,18 +240,18 @@ pub async fn execute(
         debug!("No media URLs found in tweet");
     }
 
-    // Locate or download media files in flat output_dir, fallback to nested tweets dir
+    // Locate or download media files in flat data_dir, fallback to nested tweets dir
     let mut media_files = Vec::new();
     for url in &tweet_media_urls {
         let filename = url.split('/').next_back().unwrap_or("media");
-        let flat_path = output_dir.join(filename);
-        let nested_path = output_dir.join("tweets").join(&tweet_id).join(filename);
+        let flat_path = data_dir.join(filename);
+        let nested_path = data_dir.join("tweets").join(&tweet_id).join(filename);
         let file_path = if flat_path.exists() {
             flat_path.clone()
         } else if nested_path.exists() {
             nested_path.clone()
         } else {
-            // Download into flat output_dir
+            // Download into flat data_dir
             let resp = reqwest::get(url).await?;
             let bytes = resp.bytes().await?;
             fs::write(&flat_path, &bytes).await?;
@@ -287,13 +282,11 @@ pub async fn execute(
         blossom_urls.clone()
     };
 
-    // Get cache directory for resolving mentions
-    let cache_dir = std::env::var("NOSTRWEET_CACHE_DIR")
-        .or_else(|_| std::env::var("NOSTRWEET_OUTPUT_DIR"))
-        .ok();
-
     // Create a resolver for Twitter username to Nostr pubkey mapping
-    let mut resolver = crate::nostr_linking::NostrLinkResolver::new(cache_dir);
+    let mut resolver = crate::nostr_linking::NostrLinkResolver::new(
+        Some(data_dir.to_string_lossy().to_string()),
+        mnemonic.map(|s| s.to_string()),
+    );
 
     // Format tweet content for Nostr with mention resolution
     let (content, mentioned_pubkeys) =
@@ -334,7 +327,9 @@ pub async fn execute(
         // Parse the tweet's creation date
         // First check if the tweet has a creation date
         if tweet.created_at.is_empty() {
-            bail!("No creation date found in tweet - cannot create Nostr event without a valid timestamp");
+            bail!(
+                "No creation date found in tweet - cannot create Nostr event without a valid timestamp"
+            );
         }
 
         // Parse the ISO 8601 date into a timestamp
@@ -368,7 +363,7 @@ pub async fn execute(
         let event = final_builder.sign(&keys).await?;
 
         // Save the event locally before publishing
-        storage::save_nostr_event(&event, output_dir)
+        storage::save_nostr_event(&event, data_dir)
             .context("Failed to save nostr event locally")?;
 
         debug!("Successfully created event with tweet's original timestamp");
@@ -450,7 +445,7 @@ pub async fn execute(
     };
 
     // Save event info to file
-    let event_info_path = nostr::save_nostr_event_info(&event_info, output_dir).await?;
+    let event_info_path = nostr::save_nostr_event_info(&event_info, data_dir).await?;
     debug!(
         "Saved Nostr event info to {path}",
         path = event_info_path.display()
@@ -470,15 +465,20 @@ pub async fn execute(
             );
 
             // Filter profiles that need to be posted
-            let profiles_to_post =
-                nostr_profile::filter_profiles_to_post(usernames, &client, output_dir, force)
-                    .await?;
+            let profiles_to_post = nostr_profile::filter_profiles_to_post(
+                usernames, &client, data_dir, force, mnemonic,
+            )
+            .await?;
 
             if !profiles_to_post.is_empty() {
                 // Post the profiles
-                let posted_count =
-                    nostr_profile::post_referenced_profiles(&profiles_to_post, &client, output_dir)
-                        .await?;
+                let posted_count = nostr_profile::post_referenced_profiles(
+                    &profiles_to_post,
+                    &client,
+                    data_dir,
+                    mnemonic,
+                )
+                .await?;
 
                 if posted_count > 0 {
                     info!("Posted {posted_count} referenced user profiles to Nostr");

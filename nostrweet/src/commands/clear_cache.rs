@@ -5,12 +5,12 @@ use tokio::fs;
 use tracing::{debug, info, warn};
 
 /// Clear the tweet cache (removes all downloaded tweets and media)
-pub async fn execute(output_dir: &PathBuf, force: bool) -> Result<()> {
+pub async fn execute(data_dir: &PathBuf, force: bool) -> Result<()> {
     if !force {
         // Ask for confirmation
         print!(
             "Are you sure you want to delete all cached tweets and media from {path}? [y/N] ",
-            path = output_dir.display()
+            path = data_dir.display()
         );
         io::stdout().flush().context("Failed to flush stdout")?;
 
@@ -26,7 +26,7 @@ pub async fn execute(output_dir: &PathBuf, force: bool) -> Result<()> {
     }
 
     // Get list of files
-    let mut entries = fs::read_dir(output_dir)
+    let mut entries = fs::read_dir(data_dir)
         .await
         .context("Failed to read output directory")?;
 

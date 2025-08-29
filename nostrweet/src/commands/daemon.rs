@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::signal;
-use tokio::sync::{oneshot, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, oneshot};
 use tokio::time;
 use tracing::{debug, error, info, trace, warn};
 
@@ -20,7 +20,9 @@ pub struct DaemonConfig {
     pub relays: Vec<String>,
     pub blossom_servers: Vec<String>,
     pub poll_interval: u64,
-    pub output_dir: std::path::PathBuf,
+    pub data_dir: std::path::PathBuf,
+    pub mnemonic: Option<String>,
+    pub bearer_token: String,
 }
 
 /// Per-user state tracking
@@ -133,7 +135,9 @@ pub async fn execute(
     relays: Vec<String>,
     blossom_servers: Vec<String>,
     poll_interval: u64,
-    output_dir: &Path,
+    data_dir: &Path,
+    mnemonic: Option<&str>,
+    bearer_token: &str,
 ) -> Result<()> {
     info!(
         "Starting daemon v2 for {user_count} users with {poll_interval} second base interval",
@@ -145,7 +149,9 @@ pub async fn execute(
         relays,
         blossom_servers,
         poll_interval,
-        output_dir: output_dir.to_path_buf(),
+        data_dir: data_dir.to_path_buf(),
+        mnemonic: mnemonic.map(|s| s.to_string()),
+        bearer_token: bearer_token.to_string(),
     });
 
     // Initialize daemon state
@@ -196,14 +202,15 @@ pub async fn execute(
 /// Initialize the daemon state
 async fn init_daemon(config: Arc<DaemonConfig>) -> Result<DaemonState> {
     // Ensure output directory exists
-    if !config.output_dir.exists() {
-        std::fs::create_dir_all(&config.output_dir).context("Failed to create output directory")?;
+    if !config.data_dir.exists() {
+        std::fs::create_dir_all(&config.data_dir).context("Failed to create output directory")?;
     }
 
     // Initialize Twitter client
     info!("Initializing Twitter client");
     let twitter_client = Arc::new(
-        TwitterClient::new(&config.output_dir).context("Failed to initialize Twitter client")?,
+        TwitterClient::new(&config.data_dir, &config.bearer_token)
+            .context("Failed to initialize Twitter client")?,
     );
 
     // Connect to Nostr relays
@@ -314,7 +321,9 @@ async fn run_daemon_v2(state: DaemonState) -> Result<()> {
                                 reset_time,
                                 remaining,
                             } => {
-                                warn!("Rate limit detected for @{username}, will back off until {reset_time:?} (remaining: {remaining:?})");
+                                warn!(
+                                    "Rate limit detected for @{username}, will back off until {reset_time:?} (remaining: {remaining:?})"
+                                );
                             }
                             TwitterError::UserNotFound { username: user } => {
                                 error!("User @{user} not found, will continue retrying");
@@ -469,7 +478,9 @@ async fn process_user_v2(state: DaemonState, username: String) -> Result<()> {
                     stats.total_tweets_posted += posted;
 
                     if *downloaded > 0 || *posted > 0 {
-                        info!("User @{username}: downloaded {downloaded} tweets, posted {posted} to Nostr");
+                        info!(
+                            "User @{username}: downloaded {downloaded} tweets, posted {posted} to Nostr"
+                        );
                     }
                 }
                 Err(e) => {
@@ -493,7 +504,7 @@ async fn process_user_v2(state: DaemonState, username: String) -> Result<()> {
 /// Process tweets for a user (returns downloaded count and posted count)
 async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64, u64)> {
     // Find the latest tweet ID we already have for smart resume
-    let since_id = storage::find_latest_tweet_id_for_user(username, &state.config.output_dir)?;
+    let since_id = storage::find_latest_tweet_id_for_user(username, &state.config.data_dir)?;
 
     if let Some(ref id) = since_id {
         debug!("Resuming from tweet ID {id} for @{username}");
@@ -518,16 +529,19 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
         let tweet_id = &tweet.id;
 
         // Check if tweet is already cached
-        if is_tweet_cached(tweet_id, &state.config.output_dir) {
+        if is_tweet_cached(tweet_id, &state.config.data_dir) {
             // Even if cached, check if it needs to be posted to Nostr
             // Get keys for checking (we need to load the cached tweet to get the author ID)
             if let Some(tweet_path) =
-                storage::find_existing_tweet_json(tweet_id, &state.config.output_dir)
+                storage::find_existing_tweet_json(tweet_id, &state.config.data_dir)
             {
                 let cached_tweet = storage::load_tweet_from_file(&tweet_path)?;
 
                 // Get keys for this tweet's author
-                let keys = crate::keys::get_keys_for_tweet(&cached_tweet.author.id)?;
+                let keys = crate::keys::get_keys_for_tweet(
+                    &cached_tweet.author.id,
+                    state.config.mnemonic.as_deref(),
+                )?;
 
                 // Check if already posted to Nostr by querying the relay
                 if !is_tweet_posted_to_nostr(tweet_id, &state.nostr_client, &keys).await? {
@@ -545,7 +559,8 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
                             let _ = nostr_profile::post_referenced_profiles(
                                 &referenced_usernames,
                                 &state.nostr_client,
-                                &state.config.output_dir,
+                                &state.config.data_dir,
+                                state.config.mnemonic.as_deref(),
                             )
                             .await;
                         }
@@ -561,20 +576,23 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
         // Enrich with referenced tweets
         if let Err(e) = state
             .twitter_client
-            .enrich_referenced_tweets(&mut enriched_tweet, Some(&state.config.output_dir))
+            .enrich_referenced_tweets(&mut enriched_tweet, Some(&state.config.data_dir))
             .await
         {
             debug!("Failed to enrich referenced tweets for {tweet_id}: {e}");
         }
 
         // Download media
-        let _media_results =
-            crate::media::download_media(&enriched_tweet, &state.config.output_dir)
-                .await
-                .with_context(|| format!("Failed to download media for tweet {tweet_id}"))?;
+        let _media_results = crate::media::download_media(
+            &enriched_tweet,
+            &state.config.data_dir,
+            Some(&state.config.bearer_token),
+        )
+        .await
+        .with_context(|| format!("Failed to download media for tweet {tweet_id}"))?;
 
         // Save tweet
-        storage::save_tweet(&enriched_tweet, &state.config.output_dir)?;
+        storage::save_tweet(&enriched_tweet, &state.config.data_dir)?;
         new_tweet_count += 1;
 
         // Download referenced profiles
@@ -583,12 +601,15 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
             let username_vec: Vec<String> = referenced_usernames.clone().into_iter().collect();
             let _ = state
                 .twitter_client
-                .download_user_profiles(&username_vec, &state.config.output_dir)
+                .download_user_profiles(&username_vec, &state.config.data_dir)
                 .await;
         }
 
         // Check if already posted to Nostr before attempting to post
-        let keys = crate::keys::get_keys_for_tweet(&enriched_tweet.author.id)?;
+        let keys = crate::keys::get_keys_for_tweet(
+            &enriched_tweet.author.id,
+            state.config.mnemonic.as_deref(),
+        )?;
 
         if !is_tweet_posted_to_nostr(tweet_id, &state.nostr_client, &keys).await? {
             // Post to Nostr
@@ -603,7 +624,8 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
                     let _ = nostr_profile::post_referenced_profiles(
                         &referenced_usernames,
                         &state.nostr_client,
-                        &state.config.output_dir,
+                        &state.config.data_dir,
+                        state.config.mnemonic.as_deref(),
                     )
                     .await;
                 }
@@ -677,8 +699,8 @@ async fn print_final_stats(stats: &Arc<RwLock<DaemonStats>>) {
 // Helper functions
 
 /// Check if a tweet is already cached
-pub fn is_tweet_cached(tweet_id: &str, output_dir: &Path) -> bool {
-    storage::find_existing_tweet_json(tweet_id, output_dir).is_some()
+pub fn is_tweet_cached(tweet_id: &str, data_dir: &Path) -> bool {
+    storage::find_existing_tweet_json(tweet_id, data_dir).is_some()
 }
 
 /// Check if a tweet has been posted to Nostr by querying the relay
@@ -787,7 +809,7 @@ async fn post_tweet_to_nostr_with_state(
     let tweet_id = &tweet.id;
 
     // Get keys for the tweet
-    let keys = crate::keys::get_keys_for_tweet(&tweet.author.id)?;
+    let keys = crate::keys::get_keys_for_tweet(&tweet.author.id, state.config.mnemonic.as_deref())?;
 
     // Extract media URLs
     let tweet_media_urls = media::extract_media_urls_from_tweet(tweet);
@@ -808,8 +830,9 @@ async fn post_tweet_to_nostr_with_state(
     };
 
     // Create resolver for mentions
-    let cache_dir = Some(state.config.output_dir.to_string_lossy().to_string());
-    let mut resolver = crate::nostr_linking::NostrLinkResolver::new(cache_dir);
+    let data_dir = Some(state.config.data_dir.to_string_lossy().to_string());
+    let mut resolver =
+        crate::nostr_linking::NostrLinkResolver::new(data_dir, state.config.mnemonic.clone());
 
     // Format content
     let (content, mentioned_pubkeys) =
@@ -839,7 +862,7 @@ async fn post_tweet_to_nostr_with_state(
     let event_id = *output.id();
 
     // Save the event
-    storage::save_nostr_event(&event, &state.config.output_dir)?;
+    storage::save_nostr_event(&event, &state.config.data_dir)?;
 
     Ok(event_id)
 }

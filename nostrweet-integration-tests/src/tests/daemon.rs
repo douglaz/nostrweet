@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use nostr_sdk::prelude::*;
 use nostr_sdk::Event;
+use nostr_sdk::prelude::*;
 use std::time::Duration;
 use tokio::process::{Child, Command};
 use tokio::time::{sleep, timeout};

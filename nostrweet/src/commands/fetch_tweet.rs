@@ -8,13 +8,17 @@ use crate::storage;
 use crate::twitter;
 
 /// Fetch a single tweet and its media
-pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bool) -> Result<()> {
+pub async fn execute(
+    tweet_url_or_id: &str,
+    data_dir: &Path,
+    skip_profiles: bool,
+    bearer_token: &str,
+) -> Result<()> {
     // Extract tweet ID from URL or use as is
     let tweet_id = twitter::parse_tweet_id(tweet_url_or_id).context("Failed to parse tweet ID")?;
 
     // Check if we already have the tweet data locally
-    let tweet = if let Some(existing_path) =
-        storage::find_existing_tweet_json(&tweet_id, output_dir)
+    let tweet = if let Some(existing_path) = storage::find_existing_tweet_json(&tweet_id, data_dir)
     {
         // Use existing tweet data
         debug!(
@@ -27,7 +31,7 @@ pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bo
         info!("Downloading tweet {tweet_id}");
 
         // Download the tweet and its media
-        let client = twitter::TwitterClient::new(output_dir)
+        let client = twitter::TwitterClient::new(data_dir, bearer_token)
             .context("Failed to initialize Twitter client")?;
 
         // Download the tweet
@@ -38,7 +42,7 @@ pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bo
 
         // Enrich the tweet with referenced tweet data
         if let Err(e) = client
-            .enrich_referenced_tweets(&mut downloaded_tweet, Some(output_dir))
+            .enrich_referenced_tweets(&mut downloaded_tweet, Some(data_dir))
             .await
         {
             debug!("Failed to enrich referenced tweets: {e}");
@@ -48,7 +52,7 @@ pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bo
         info!("Successfully retrieved tweet data");
 
         // Save tweet data
-        let saved_path = storage::save_tweet(&downloaded_tweet, output_dir)
+        let saved_path = storage::save_tweet(&downloaded_tweet, data_dir)
             .context("Failed to save tweet data")?;
         debug!("Saved tweet data to {path}", path = saved_path.display());
 
@@ -56,7 +60,7 @@ pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bo
     };
 
     // Download media
-    let media_results = media::download_media(&tweet, output_dir)
+    let media_results = media::download_media(&tweet, data_dir, Some(bearer_token))
         .await
         .context("Failed to download media")?;
 
@@ -84,22 +88,22 @@ pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bo
     if expected_media_count == 0 {
         info!(
             "Tweet processed (no media items found/expected) in {path}",
-            path = output_dir.display()
+            path = data_dir.display()
         );
     } else if actual_media_count == expected_media_count {
         info!(
             "Tweet and all {actual_media_count} media item(s) successfully processed in {path}",
-            path = output_dir.display()
+            path = data_dir.display()
         );
     } else if actual_media_count > 0 {
         info!(
             "Tweet processed with {actual_media_count} out of {expected_media_count} media item(s) successfully processed in {path}",
-            path = output_dir.display()
+            path = data_dir.display()
         );
     } else {
         info!(
             "Tweet processed, but all {expected_media_count} media item(s) failed to download, in {path}",
-            path = output_dir.display()
+            path = data_dir.display()
         );
     }
 
@@ -113,13 +117,10 @@ pub async fn execute(tweet_url_or_id: &str, output_dir: &Path, skip_profiles: bo
             );
 
             let username_vec: Vec<String> = usernames.into_iter().collect();
-            let client = twitter::TwitterClient::new(output_dir)
+            let client = twitter::TwitterClient::new(data_dir, bearer_token)
                 .context("Failed to initialize Twitter client for profile downloads")?;
 
-            match client
-                .download_user_profiles(&username_vec, output_dir)
-                .await
-            {
+            match client.download_user_profiles(&username_vec, data_dir).await {
                 Ok(profiles) => {
                     if !profiles.is_empty() {
                         info!(

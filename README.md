@@ -53,13 +53,13 @@ Create a `.env` file in the project root:
 ```bash
 TWITTER_BEARER_TOKEN=your_twitter_bearer_token
 RUST_LOG=info  # Optional: debug, trace for more verbose output
-NOSTRWEET_CACHE_DIR=./downloads  # Optional: custom cache directory
+NOSTRWEET_DATA_DIR=./downloads  # Optional: data directory for all storage
 ```
 
 ## Usage
 
 ### Global Options
-- `-o, --output-dir <DIR>`: Specify the directory to save tweets and media (default: `./downloads`)
+- `-o, --data-dir <DIR>`: Specify the directory to save all data (tweets, media, profiles) (default: `./downloads`)
 - `-v, --verbose`: Enable verbose output logging
 - `-h, --help`: Display help information
 - `-V, --version`: Show version information
@@ -77,7 +77,7 @@ nostrweet fetch-tweet https://twitter.com/username/status/1234567890
 nostrweet fetch-tweet 1234567890
 
 # Custom output directory
-nostrweet --output-dir /path/to/downloads fetch-tweet 1234567890
+nostrweet --data-dir /path/to/downloads fetch-tweet 1234567890
 ```
 
 #### Fetch User Timeline
@@ -279,8 +279,7 @@ git config --unset core.hooksPath
 | Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
 | `TWITTER_BEARER_TOKEN` | Twitter API bearer token | Yes | - |
-| `NOSTRWEET_OUTPUT_DIR` | Output directory for tweets and media | Yes (or use `-o` flag) | - |
-| `NOSTRWEET_CACHE_DIR` | Additional cache directory path | No | - |
+| `NOSTRWEET_DATA_DIR` | Data directory for all storage (tweets, media, profiles) | Yes (or use `-o` flag) | - |
 | `RUST_LOG` | Logging level | No | `info` |
 
 ## Contributing

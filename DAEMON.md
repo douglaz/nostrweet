@@ -68,16 +68,16 @@ nostrweet daemon \
   --relay wss://relay1.com \
   --relay wss://relay2.com \
   --poll-interval 300 \
-  --output-dir ./downloads
+  --data-dir ./downloads
 ```
 
 ### Parameters
 - `--user`: Twitter username to monitor (can be specified multiple times)
 - `--relay`: Nostr relay to post to (can be specified multiple times)
 - `--poll-interval`: Seconds between polling cycles (default: 300)
-- `--output-dir`: Cache directory (required)
+- `--data-dir`: Data directory for all storage (required)
 - `--blossom-server`: Blossom server for media (can be specified multiple times)
-- `--private-key`: Optional Nostr private key
+- `--mnemonic`: Optional BIP39 mnemonic phrase for deriving Nostr keys
 
 ### Clap Definition
 ```rust
@@ -99,9 +99,9 @@ struct DaemonCommand {
     #[arg(short, long, default_value = "300")]
     poll_interval: u64,
     
-    /// Nostr private key (hex format, without leading 0x)
-    #[arg(long, env = "NOSTRWEET_PRIVATE_KEY")]
-    private_key: Option<String>,
+    /// BIP39 mnemonic phrase for deriving Nostr keys
+    #[arg(long, env = "NOSTRWEET_MNEMONIC")]
+    mnemonic: Option<String>,
 }
 ```
 
@@ -371,12 +371,11 @@ impl RateLimiter {
 ```bash
 # Required
 export TWITTER_BEARER_TOKEN="your_token"
-export NOSTRWEET_OUTPUT_DIR="./downloads"
+export NOSTRWEET_DATA_DIR="./downloads"
 export NOSTRWEET_RELAYS="wss://relay1.com,wss://relay2.com"
 
 # Optional
-export NOSTRWEET_PRIVATE_KEY="your_hex_key"
-export NOSTRWEET_BLOSSOM_SERVERS="https://blossom1.com"
+export NOSTRWEET_MNEMONIC="your twelve word mnemonic phrase here"
 export RUST_LOG="info,nostrweet=debug"
 ```
 

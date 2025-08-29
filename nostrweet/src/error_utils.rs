@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 /// File I/O error handling utilities
 /// JSON serialization/parsing error handling utilities
@@ -37,18 +37,6 @@ pub async fn parse_http_response_json<T: DeserializeOwned>(
         .with_context(|| format!("Failed to parse {api_desc} response"))
 }
 
-/// Environment variable handling utilities
-///
-/// Get required environment variable with contextual error handling
-pub fn get_required_env_var(var_name: &str) -> Result<String> {
-    std::env::var(var_name).with_context(|| format!("{var_name} environment variable not set"))
-}
-
-/// Get optional environment variable, returning None if not set or empty
-pub fn get_optional_env_var(var_name: &str) -> Option<String> {
-    std::env::var(var_name).ok().filter(|v| !v.is_empty())
-}
-
 /// Create HTTP client with contextual error handling
 pub fn create_http_client_with_context() -> Result<reqwest::Client> {
     reqwest::Client::builder()
@@ -59,7 +47,7 @@ pub fn create_http_client_with_context() -> Result<reqwest::Client> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::{Deserialize, Serialize};
+    use serde::Deserialize;
 
     #[derive(Serialize, Deserialize, PartialEq, Debug)]
     struct TestData {
@@ -80,22 +68,6 @@ mod tests {
 
         let parsed_data: TestData = parse_json_with_context(&json_str, "test data").unwrap();
         assert_eq!(parsed_data, data);
-    }
-
-    #[test]
-    fn test_env_var_handling() {
-        // Test required env var (this will likely fail, which is expected)
-        let result = get_required_env_var("NONEXISTENT_VAR");
-        assert!(result.is_err());
-
-        // Test optional env var
-        let result = get_optional_env_var("NONEXISTENT_VAR");
-        assert!(result.is_none());
-
-        // Set a test env var
-        std::env::set_var("TEST_VAR", "test_value");
-        let result = get_optional_env_var("TEST_VAR");
-        assert_eq!(result, Some("test_value".to_string()));
     }
 
     #[test]

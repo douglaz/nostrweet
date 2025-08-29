@@ -1,13 +1,13 @@
-use crate::error_utils::{create_http_client_with_context, get_optional_env_var};
+use crate::error_utils::create_http_client_with_context;
 use crate::filename_utils::{media_filename, sanitized_file_path};
 use crate::twitter::{Media as TwitterMedia, Tweet};
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result, ensure};
 use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use reqwest::Client;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use tokio::fs::{metadata, File};
+use tokio::fs::{File, metadata};
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::StreamReader;
 use tracing::{debug, info, warn};
@@ -123,7 +123,11 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
 }
 
 /// Downloads all media from a tweet to the specified directory
-pub async fn download_media(tweet: &Tweet, output_dir: &Path) -> Result<Vec<MediaResult>> {
+pub async fn download_media(
+    tweet: &Tweet,
+    data_dir: &Path,
+    bearer_token: Option<&str>,
+) -> Result<Vec<MediaResult>> {
     let mut media_files = Vec::new();
     let client = create_http_client_with_context()?;
 
@@ -131,7 +135,7 @@ pub async fn download_media(tweet: &Tweet, output_dir: &Path) -> Result<Vec<Medi
     if let Some(includes) = &tweet.includes {
         if let Some(media_items) = &includes.media {
             for media in media_items.iter() {
-                match download_media_item(&client, media, tweet, output_dir).await {
+                match download_media_item(&client, media, tweet, data_dir, bearer_token).await {
                     Ok(result) => media_files.push(result),
                     Err(e) => {
                         warn!(
@@ -167,7 +171,8 @@ pub async fn download_media(tweet: &Tweet, output_dir: &Path) -> Result<Vec<Medi
                                 &client,
                                 media_item,
                                 original_tweet,
-                                output_dir,
+                                data_dir,
+                                bearer_token,
                             )
                             .await
                             {
@@ -279,6 +284,7 @@ fn build_media_request(
     client: &Client,
     download_url: &str,
     media_type: &str,
+    bearer_token: Option<&str>,
 ) -> Result<reqwest::RequestBuilder> {
     // Build request with headers to avoid 403 on protected media
     let mut req_builder = client
@@ -326,16 +332,14 @@ fn build_media_request(
 
     // Conditionally attach bearer token for non-public hosts
     if !(download_url.contains("pbs.twimg.com") || download_url.contains("video.twimg.com")) {
-        if let Some(bearer) = get_optional_env_var("TWITTER_BEARER_TOKEN") {
-            req_builder = req_builder.bearer_auth(&bearer);
-            debug!("Using TWITTER_BEARER_TOKEN for URL: {download_url}");
+        if let Some(bearer) = bearer_token {
+            req_builder = req_builder.bearer_auth(bearer);
+            debug!("Using bearer token for URL: {download_url}");
         } else {
-            warn!(
-                "TWITTER_BEARER_TOKEN not found. Media download for URL ({download_url}) may fail.",
-            );
+            warn!("Bearer token not provided. Media download for URL ({download_url}) may fail.",);
         }
     } else {
-        debug!("Skipping TWITTER_BEARER_TOKEN for known public media URL: {download_url}");
+        debug!("Skipping bearer token for known public media URL: {download_url}");
     }
 
     Ok(req_builder)
@@ -442,7 +446,8 @@ async fn download_media_item(
     client: &Client,
     media: &TwitterMedia,
     tweet: &Tweet,
-    output_dir: &Path,
+    data_dir: &Path,
+    bearer_token: Option<&str>,
 ) -> Result<MediaResult> {
     let download_url = determine_download_url(media)?;
     let file_extension = get_file_extension(&media.type_field);
@@ -452,7 +457,7 @@ async fn download_media_item(
 
     // Include tweet author in the filename for better organization, but use media_key as the main identifier
     let filename = media_filename(&tweet.author.username, media_key, file_extension);
-    let file_path = sanitized_file_path(output_dir, &filename);
+    let file_path = sanitized_file_path(data_dir, &filename);
 
     // Check if we already have this file cached
     if let Some(cached_result) = check_media_cache(&file_path).await? {
@@ -470,7 +475,7 @@ async fn download_media_item(
         type_field = media.type_field
     );
 
-    let req_builder = build_media_request(client, download_url, &media.type_field)?;
+    let req_builder = build_media_request(client, download_url, &media.type_field, bearer_token)?;
 
     // Debug: log the prepared request headers to diagnose 403
     if let Some(rb) = req_builder.try_clone() {

@@ -13,17 +13,20 @@ pub struct NostrLinkResolver {
     username_to_pubkey: HashMap<String, PublicKey>,
     /// Maps Twitter user ID to Nostr public key
     user_id_to_pubkey: HashMap<String, PublicKey>,
-    /// Cache directory to search for user profiles
-    cache_dir: Option<String>,
+    /// Data directory to search for user profiles
+    data_dir: Option<String>,
+    /// Mnemonic for deriving keys
+    mnemonic: Option<String>,
 }
 
 impl NostrLinkResolver {
-    /// Create a new resolver with optional cache directory
-    pub fn new(cache_dir: Option<String>) -> Self {
+    /// Create a new resolver with optional data directory and mnemonic
+    pub fn new(data_dir: Option<String>, mnemonic: Option<String>) -> Self {
         Self {
             username_to_pubkey: HashMap::new(),
             user_id_to_pubkey: HashMap::new(),
-            cache_dir,
+            data_dir,
+            mnemonic,
         }
     }
 
@@ -37,9 +40,9 @@ impl NostrLinkResolver {
         }
 
         // Try to find the user profile in cache
-        if let Some(cache_dir) = &self.cache_dir {
-            let cache_path = Path::new(cache_dir);
-            if let Ok(Some(profile_path)) = find_latest_user_profile(username, cache_path) {
+        if let Some(data_dir) = &self.data_dir {
+            let data_path = Path::new(data_dir);
+            if let Ok(Some(profile_path)) = find_latest_user_profile(username, data_path) {
                 debug!(
                     "Found cached profile for @{username} at {profile_path}",
                     profile_path = profile_path.display()
@@ -48,9 +51,10 @@ impl NostrLinkResolver {
                 // Load the user profile to get the user ID
                 if let Ok(user) = load_user_from_file(&profile_path) {
                     // Derive the Nostr key from the Twitter user ID
-                    let keys = derive_key_for_twitter_user(&user.id).with_context(|| {
-                        format!("Failed to derive key for Twitter user {username}")
-                    })?;
+                    let keys = derive_key_for_twitter_user(&user.id, self.mnemonic.as_deref())
+                        .with_context(|| {
+                            format!("Failed to derive key for Twitter user {username}")
+                        })?;
                     let pubkey = keys.public_key();
 
                     // Cache both username and user ID mappings
@@ -76,7 +80,7 @@ impl NostrLinkResolver {
         }
 
         // Derive the key
-        let keys = derive_key_for_twitter_user(user_id)
+        let keys = derive_key_for_twitter_user(user_id, self.mnemonic.as_deref())
             .with_context(|| format!("Failed to derive key for Twitter user ID {user_id}"))?;
         let pubkey = keys.public_key();
 
@@ -89,7 +93,17 @@ impl NostrLinkResolver {
     /// Add a known mapping between Twitter username and user ID
     /// This is useful when processing tweets where we know the author
     pub fn add_known_user(&mut self, username: &str, user_id: &str) -> Result<()> {
-        let keys = derive_key_for_twitter_user(user_id)
+        // Check if we already have this user (avoids re-deriving keys in tests)
+        if self.user_id_to_pubkey.contains_key(user_id) {
+            // If we have the user ID, ensure username mapping is also present
+            if let Some(pubkey) = self.user_id_to_pubkey.get(user_id) {
+                self.username_to_pubkey
+                    .insert(username.to_string(), *pubkey);
+            }
+            return Ok(());
+        }
+
+        let keys = derive_key_for_twitter_user(user_id, self.mnemonic.as_deref())
             .with_context(|| format!("Failed to derive key for Twitter user {username}"))?;
         let pubkey = keys.public_key();
 
@@ -107,9 +121,11 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
+    const TEST_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
     #[test]
     fn test_nostr_link_resolver() -> Result<()> {
-        let mut resolver = NostrLinkResolver::new(None);
+        let mut resolver = NostrLinkResolver::new(None, Some(TEST_MNEMONIC.to_string()));
 
         // Test user ID resolution
         let pubkey1 = resolver.resolve_user_id("12345")?;
@@ -125,11 +141,11 @@ mod tests {
     }
 
     #[test]
-    fn test_resolver_with_cache_dir() -> Result<()> {
+    fn test_resolver_with_data_dir() -> Result<()> {
         let temp_dir = TempDir::new()?;
-        let cache_dir = temp_dir.path().to_str().unwrap().to_string();
+        let data_dir = temp_dir.path().to_str().unwrap().to_string();
 
-        // Create a mock user profile in the cache
+        // Create a mock user profile in the data directory
         let user = User {
             id: "98765".to_string(),
             username: "cacheduser".to_string(),
@@ -144,8 +160,8 @@ mod tests {
         let json = serde_json::to_string(&user)?;
         fs::write(&file_path, json)?;
 
-        // Create resolver with cache directory
-        let mut resolver = NostrLinkResolver::new(Some(cache_dir));
+        // Create resolver with data directory
+        let mut resolver = NostrLinkResolver::new(Some(data_dir), Some(TEST_MNEMONIC.to_string()));
 
         // Resolve username should find cached profile
         let pubkey = resolver.resolve_username("cacheduser")?;
@@ -160,8 +176,8 @@ mod tests {
 
     #[test]
     fn test_deterministic_key_derivation() -> Result<()> {
-        let mut resolver1 = NostrLinkResolver::new(None);
-        let mut resolver2 = NostrLinkResolver::new(None);
+        let mut resolver1 = NostrLinkResolver::new(None, Some(TEST_MNEMONIC.to_string()));
+        let mut resolver2 = NostrLinkResolver::new(None, Some(TEST_MNEMONIC.to_string()));
 
         // Same user ID should produce same pubkey across different resolvers
         let pubkey1 = resolver1.resolve_user_id("555555")?;

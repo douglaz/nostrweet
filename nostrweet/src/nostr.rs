@@ -1,14 +1,14 @@
 use crate::nostr_linking::NostrLinkResolver;
-use anyhow::{bail, Context, Result};
-use base64::engine::general_purpose::STANDARD;
+use anyhow::{Context, Result, bail};
 use base64::Engine;
-use nostr_sdk::nips::nip65::RelayMetadata;
+use base64::engine::general_purpose::STANDARD;
 use nostr_sdk::ToBech32;
+use nostr_sdk::nips::nip65::RelayMetadata;
 use nostr_sdk::{
     Alphabet, Client, Event, EventBuilder, Filter, Keys, Kind, PublicKey, RelayUrl,
     SingleLetterTag, SubscriptionId, Tag, Timestamp, Url,
 };
-use reqwest::{header::RETRY_AFTER, StatusCode};
+use reqwest::{StatusCode, header::RETRY_AFTER};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -382,7 +382,9 @@ pub async fn upload_media_to_blossom(
                                 upload_success = true;
                                 debug!("Successfully uploaded to Blossom server: {server_url}");
                             } else {
-                                warn!("Blossom response missing URL field and nip94_event url tag: {json}");
+                                warn!(
+                                    "Blossom response missing URL field and nip94_event url tag: {json}"
+                                );
                             }
                         } else {
                             warn!("Blossom server error {status}", status = r.status());
@@ -458,10 +460,10 @@ pub async fn initialize_nostr_client(keys: &Keys, relays: &[String]) -> Result<C
 
 /// Check if a tweet has already been posted to Nostr
 pub async fn check_existing_nostr_event(
-    output_dir: &Path,
+    data_dir: &Path,
     tweet_id: &str,
 ) -> Result<Option<NostrEventInfo>> {
-    let nostr_dir = output_dir.join("nostr");
+    let nostr_dir = data_dir.join("nostr");
     let event_info_path = nostr_dir.join(format!("{tweet_id}.json"));
 
     if event_info_path.exists() {
@@ -481,9 +483,9 @@ pub async fn check_existing_nostr_event(
 /// Save Nostr event information to file
 pub async fn save_nostr_event_info(
     event_info: &NostrEventInfo,
-    output_dir: &Path,
+    data_dir: &Path,
 ) -> Result<PathBuf> {
-    let nostr_dir = output_dir.join("nostr");
+    let nostr_dir = data_dir.join("nostr");
 
     if !nostr_dir.exists() {
         fs::create_dir_all(&nostr_dir).await.with_context(|| {
@@ -1103,7 +1105,7 @@ fn format_reply_tweet(
 ) {
     if let Some(ref_data) = &ref_tweet.data {
         // Legacy formatter without mention resolution
-        let mut dummy_resolver = NostrLinkResolver::new(None);
+        let mut dummy_resolver = NostrLinkResolver::new(None, None);
         let formatter = TweetFormatter {
             tweet: ref_data,
             media_urls: &[],
@@ -1213,7 +1215,7 @@ fn format_quote_tweet(
 ) {
     if let Some(ref_data) = &ref_tweet.data {
         // Legacy formatter without mention resolution
-        let mut dummy_resolver = NostrLinkResolver::new(None);
+        let mut dummy_resolver = NostrLinkResolver::new(None, None);
         let formatter = TweetFormatter {
             tweet: ref_data,
             media_urls: &[],
@@ -1388,7 +1390,7 @@ fn format_retweet(
 
         // Process the retweeted content
         // Legacy formatter without mention resolution
-        let mut dummy_resolver = NostrLinkResolver::new(None);
+        let mut dummy_resolver = NostrLinkResolver::new(None, None);
         let formatter = TweetFormatter {
             tweet: ref_data,
             media_urls: &[],
@@ -1518,7 +1520,7 @@ fn add_referenced_tweets(
                         username = ref_data.author.username
                     ));
                     // Legacy formatter without mention resolution
-                    let mut dummy_resolver = NostrLinkResolver::new(None);
+                    let mut dummy_resolver = NostrLinkResolver::new(None, None);
                     let formatter = TweetFormatter {
                         tweet: ref_data,
                         media_urls: &[],
@@ -1608,6 +1610,8 @@ mod tests {
     use super::*;
     use crate::twitter::{Entities, NoteTweet, ReferencedTweet, Tweet, UrlEntity, User};
     use pretty_assertions::assert_eq;
+
+    const TEST_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
     fn create_test_tweet() -> Tweet {
         Tweet {
@@ -1718,7 +1722,7 @@ mod tests {
     #[test]
     fn test_process_mentions_in_text() -> Result<()> {
         let tweet = create_test_tweet_with_mentions();
-        let mut resolver = NostrLinkResolver::new(None);
+        let mut resolver = NostrLinkResolver::new(None, Some(TEST_MNEMONIC.to_string()));
 
         // Add known users to resolver
         resolver.add_known_user("alice", "111111")?;
@@ -1741,7 +1745,7 @@ mod tests {
     #[test]
     fn test_process_mentions_unknown_users() -> Result<()> {
         let tweet = create_test_tweet_with_mentions();
-        let mut resolver = NostrLinkResolver::new(None);
+        let mut resolver = NostrLinkResolver::new(None, None);
 
         // Don't add users to resolver - they should remain as @mentions
         let (processed_text, mentioned_pubkeys) =
@@ -1761,11 +1765,13 @@ mod tests {
     #[test]
     fn test_format_tweet_with_mentions() -> Result<()> {
         let tweet = create_test_tweet_with_mentions();
-        let mut resolver = NostrLinkResolver::new(None);
+        let mut resolver = NostrLinkResolver::new(None, Some(TEST_MNEMONIC.to_string()));
 
-        // Add known users
+        // Add known users - need to pre-populate before passing to format function
+        // because it will internally call add_known_user which uses env vars
         resolver.add_known_user("alice", "111111")?;
         resolver.add_known_user("bob", "222222")?;
+        resolver.add_known_user("testuser", "987654321")?; // Pre-add tweet author
 
         let (content, mentioned_pubkeys) =
             format_tweet_as_nostr_content_with_mentions(&tweet, &[], &mut resolver)?;
@@ -1813,11 +1819,12 @@ mod tests {
             data: Some(Box::new(reply_tweet)),
         }]);
 
-        let mut resolver = NostrLinkResolver::new(None);
+        let mut resolver = NostrLinkResolver::new(None, Some(TEST_MNEMONIC.to_string()));
 
         // Add known users including the replied-to user
         resolver.add_known_user("alice", "111111")?;
         resolver.add_known_user("replyuser", "333333")?;
+        resolver.add_known_user("testuser", "987654321")?; // The main tweet author
 
         let (content, mentioned_pubkeys) =
             format_tweet_as_nostr_content_with_mentions(&main_tweet, &[], &mut resolver)?;
