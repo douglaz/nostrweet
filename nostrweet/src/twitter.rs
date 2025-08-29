@@ -275,7 +275,7 @@ impl TwitterClient {
                     attempt += 1;
 
                     // Check if we've hit the max retry attempts
-                    if attempt >= max_attempts {
+                    if attempt > max_attempts {
                         return Err(anyhow::Error::new(err)).with_context(|| {
                             format!(
                                 "Failed to send request to Twitter API after {attempt} attempts"
@@ -317,7 +317,7 @@ impl TwitterClient {
             if response.status() == StatusCode::TOO_MANY_REQUESTS {
                 attempt += 1;
 
-                if attempt >= max_attempts {
+                if attempt > max_attempts {
                     debug!(
                         "Maximum retry attempts ({max_attempts}) reached for {resource_id}, rate limit reset: {rate_limit_reset:?}",
                         rate_limit_reset = rate_limits.reset
@@ -365,6 +365,9 @@ impl TwitterClient {
                         .unwrap_or(Duration::from_secs(5 * (attempt as u64)))
                         .as_secs()
                 });
+
+                // Cap the wait time at 30 minutes (1800 seconds) to avoid excessive delays
+                let base_wait_secs = base_wait_secs.min(1800);
 
                 let sleep_duration =
                     self.calculate_sleep_duration_with_jitter(Duration::from_secs(base_wait_secs));

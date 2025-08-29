@@ -55,11 +55,13 @@ impl TestContext {
 
         info!("Running: {:?}", cmd);
 
-        // Apply a 15-minute timeout to allow for Twitter API rate limit retries
-        let status = match timeout(Duration::from_secs(900), cmd.status()).await {
+        // Apply a 120-minute timeout to allow for Twitter API rate limit retries
+        let status = match timeout(Duration::from_secs(7200), cmd.status()).await {
             Ok(result) => result.context("Failed to run nostrweet")?,
             Err(_) => {
-                bail!("Command timed out after 15 minutes. This may indicate a Twitter API issue.");
+                bail!(
+                    "Command timed out after 120 minutes. This may indicate a Twitter API issue."
+                );
             }
         };
 
@@ -112,11 +114,13 @@ impl TestContext {
 
         info!("Running (with output capture): {:?}", cmd);
 
-        // Apply a 15-minute timeout to allow for Twitter API rate limit retries
-        let output = match timeout(Duration::from_secs(900), cmd.output()).await {
+        // Apply a 120-minute timeout to allow for Twitter API rate limit retries
+        let output = match timeout(Duration::from_secs(7200), cmd.output()).await {
             Ok(result) => result.context("Failed to run nostrweet")?,
             Err(_) => {
-                bail!("Command timed out after 15 minutes. This may indicate a Twitter API issue.");
+                bail!(
+                    "Command timed out after 120 minutes. This may indicate a Twitter API issue."
+                );
             }
         };
 
