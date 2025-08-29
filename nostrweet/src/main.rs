@@ -32,7 +32,7 @@ struct Cli {
     data_dir: Option<PathBuf>,
 
     /// Twitter API bearer token for authentication
-    #[arg(short = 'b', long, env = "TWITTER_BEARER_TOKEN", global = true)]
+    #[arg(long, env = "TWITTER_BEARER_TOKEN", global = true)]
     bearer_token: Option<String>,
 
     /// BIP39 mnemonic phrase for deriving Nostr keys
@@ -113,7 +113,7 @@ enum Commands {
         relays: Vec<String>,
 
         /// Blossom server addresses for media uploads (comma-separated)
-        #[arg(short, long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
+        #[arg(long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
         blossom_servers: Vec<String>,
 
         /// Force overwrite of existing Nostr event
@@ -142,7 +142,7 @@ enum Commands {
         relays: Vec<String>,
 
         /// Blossom server addresses for media uploads (comma-separated)
-        #[arg(short, long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
+        #[arg(long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
         blossom_servers: Vec<String>,
 
         /// Force overwrite of existing Nostr events
@@ -171,7 +171,7 @@ enum Commands {
         relays: Vec<String>,
 
         /// Blossom server addresses for media uploads (comma-separated)
-        #[arg(short, long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
+        #[arg(long, value_delimiter = ',', env = "NOSTRWEET_BLOSSOM_SERVERS")]
         blossom_servers: Vec<String>,
 
         /// Force overwrite of existing Nostr event
@@ -227,7 +227,7 @@ enum Commands {
         relays: Vec<String>,
 
         /// Blossom server addresses for media uploads
-        #[arg(short = 'b', long = "blossom-server", action = clap::ArgAction::Append)]
+        #[arg(long = "blossom-server", action = clap::ArgAction::Append)]
         blossom_servers: Vec<String>,
 
         /// Seconds between polling cycles
