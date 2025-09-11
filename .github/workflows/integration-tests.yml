@@ -60,7 +60,7 @@ jobs:
     
     strategy:
       matrix:
-        test: [tweet_fetch, profile, daemon, nostr_post, user_tweets, batch_post, cache_management, utils_query]
+        test: [tweet_fetch, profile_sync, daemon_mode, nostr_post, user_tweets, batch_post, cache_management, utils_query]
       fail-fast: false  # Continue running other tests if one fails
     
     env:
