@@ -56,7 +56,8 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
         if let Some(entities) = entities {
             if let Some(urls) = &entities.urls {
                 for url_entity in urls {
-                    let expanded_url = &url_entity.expanded_url;
+                    // Get expanded URL or fall back to original
+                    let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
 
                     // Check if this is a Twitter/X video URL
                     if expanded_url.contains("video")
@@ -103,7 +104,7 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
         if let Some(entities) = &tweet.entities {
             if let Some(urls) = &entities.urls {
                 for url_entity in urls {
-                    let expanded_url = &url_entity.expanded_url;
+                    let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
                     if expanded_url.contains("video")
                         && (expanded_url.contains("twitter.com") || expanded_url.contains("x.com"))
                     {

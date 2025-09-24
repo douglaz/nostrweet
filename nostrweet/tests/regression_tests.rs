@@ -760,8 +760,8 @@ fn test_parse_tweet_with_url() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("urls missing"))?;
     pretty_assertions::assert_eq!(urls.len(), 1);
     pretty_assertions::assert_eq!(
-        urls[0].expanded_url,
-        "https://example.com/interesting-article"
+        urls[0].expanded_url.as_deref(),
+        Some("https://example.com/interesting-article")
     );
     Ok(())
 }
