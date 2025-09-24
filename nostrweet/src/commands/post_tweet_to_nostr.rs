@@ -192,7 +192,7 @@ pub async fn execute(
         if let Some(entities) = &tweet.entities {
             if let Some(urls) = &entities.urls {
                 for url_entity in urls {
-                    let expanded_url = &url_entity.expanded_url;
+                    let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
                     if expanded_url.contains("video")
                         && (expanded_url.contains("twitter.com") || expanded_url.contains("x.com"))
                     {

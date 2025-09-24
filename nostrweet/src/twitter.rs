@@ -137,7 +137,7 @@ pub struct Entities {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UrlEntity {
     pub url: String,
-    pub expanded_url: String,
+    pub expanded_url: Option<String>,
     pub display_url: String,
 }
 
@@ -1155,7 +1155,7 @@ impl TwitterClient {
                 if let Some(urls) = &mut url_data.urls {
                     for url_item in urls {
                         if let Ok(expanded_url) = resolve_shortened_url(&url_item.url).await {
-                            url_item.expanded_url = expanded_url;
+                            url_item.expanded_url = Some(expanded_url);
                         }
                     }
                 }

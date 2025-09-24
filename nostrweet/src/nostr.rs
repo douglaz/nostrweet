@@ -616,11 +616,13 @@ fn expand_urls_in_text(
             sorted_urls.sort_by(|a, b| b.url.len().cmp(&a.url.len()));
 
             for url_entity in sorted_urls {
+                // Get expanded URL or fall back to original
+                let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
+
                 // Only replace if the URL is actually shortened (expanded URL is different)
-                if url_entity.url != url_entity.expanded_url {
+                if &url_entity.url != expanded_url {
                     // Enhanced media URL detection
-                    let is_media_url =
-                        is_twitter_media_url(&url_entity.expanded_url, &url_entity.display_url);
+                    let is_media_url = is_twitter_media_url(expanded_url, &url_entity.display_url);
 
                     if is_media_url {
                         // Find the corresponding media URL from the tweet's media
@@ -635,24 +637,21 @@ fn expand_urls_in_text(
                             let fallback_link = format!(
                                 "[{}]({})",
                                 sanitize_display_url(&url_entity.display_url),
-                                &url_entity.expanded_url
+                                expanded_url
                             );
                             result = safe_replace_url(&result, &url_entity.url, &fallback_link);
                         }
                     } else {
                         // Non-media URL: use regular expansion with markdown format
-                        if is_valid_url(&url_entity.expanded_url) {
+                        if is_valid_url(expanded_url) {
                             let markdown_link = format!(
                                 "[{}]({})",
                                 sanitize_display_url(&url_entity.display_url),
-                                &url_entity.expanded_url
+                                expanded_url
                             );
                             result = safe_replace_url(&result, &url_entity.url, &markdown_link);
                         } else {
-                            debug!(
-                                "Invalid expanded URL {}, keeping original",
-                                url_entity.expanded_url
-                            );
+                            debug!("Invalid expanded URL {}, keeping original", expanded_url);
                         }
                     }
                 } else {
@@ -687,10 +686,11 @@ fn find_media_url_for_shortened_url(
                 if url_entity.url == shortened_url {
                     // This is the matching t.co URL
                     // If it's a video or photo URL, return the best media URL
-                    if is_twitter_media_url(&url_entity.expanded_url, &url_entity.display_url) {
+                    let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
+                    if is_twitter_media_url(expanded_url, &url_entity.display_url) {
                         // For videos, prefer the highest quality variant which is typically last in media_urls
                         // For images, any media URL should work
-                        if url_entity.expanded_url.contains("/video/") {
+                        if expanded_url.contains("/video/") {
                             return media_urls.last().cloned();
                         } else {
                             return media_urls.first().cloned();
@@ -1632,7 +1632,7 @@ mod tests {
             entities: Some(Entities {
                 urls: Some(vec![UrlEntity {
                     url: "https://t.co/abc123".to_string(),
-                    expanded_url: "https://example.com/article".to_string(),
+                    expanded_url: Some("https://example.com/article".to_string()),
                     display_url: "example.com/article".to_string(),
                 }]),
                 hashtags: None,
@@ -1663,7 +1663,7 @@ mod tests {
             entities: Some(Entities {
                 urls: Some(vec![UrlEntity {
                     url: "https://t.co/abc123".to_string(),
-                    expanded_url: "https://example.com/article".to_string(),
+                    expanded_url: Some("https://example.com/article".to_string()),
                     display_url: "example.com/article".to_string(),
                 }]),
                 hashtags: None,
@@ -2009,12 +2009,12 @@ mod tests {
             urls: Some(vec![
                 UrlEntity {
                     url: "https://t.co/abc123".to_string(),
-                    expanded_url: "https://example.com/article1".to_string(),
+                    expanded_url: Some("https://example.com/article1".to_string()),
                     display_url: "example.com/article1".to_string(),
                 },
                 UrlEntity {
                     url: "https://t.co/xyz789".to_string(),
-                    expanded_url: "https://example.com/article2".to_string(),
+                    expanded_url: Some("https://example.com/article2".to_string()),
                     display_url: "example.com/article2".to_string(),
                 },
             ]),

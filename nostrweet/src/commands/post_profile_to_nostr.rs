@@ -22,10 +22,7 @@ pub async fn execute(
         .context("Failed to find latest user profile")?;
 
     let Some(profile_path) = latest_profile_path else {
-        bail!(
-            "No profile found for user '{username}'",
-            username = username
-        );
+        bail!("No profile found for user '{username}'");
     };
 
     debug!(
