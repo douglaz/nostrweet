@@ -46,22 +46,14 @@
             pkgsStatic.stdenv.cc
           ];
 
-          buildInputs = with pkgs; [
-            pkgsStatic.openssl.dev
-            pkgsStatic.openssl.out
-          ];
+          buildInputs = with pkgs; [];
 
           # Musl target configuration
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.pkgsStatic.stdenv.cc}/bin/${pkgs.pkgsStatic.stdenv.cc.targetPrefix}cc";
           CC_x86_64_unknown_linux_musl = "${pkgs.pkgsStatic.stdenv.cc}/bin/${pkgs.pkgsStatic.stdenv.cc.targetPrefix}cc";
           CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=-static";
 
-          # Set OpenSSL environment variables for static linking
-          OPENSSL_STATIC = "1";
-          OPENSSL_LIB_DIR = "${pkgs.pkgsStatic.openssl.out}/lib";
-          OPENSSL_INCLUDE_DIR = "${pkgs.pkgsStatic.openssl.dev}/include";
-          PKG_CONFIG_PATH = "${pkgs.pkgsStatic.openssl.dev}/lib/pkgconfig";
-          PKG_CONFIG_ALL_STATIC = "1";
+          # No OpenSSL needed - using rustls for TLS
 
           # Override buildPhase to use the correct target
           buildPhase = ''
@@ -146,8 +138,6 @@
             rustToolchain
             pkg-config
             pkgsStatic.stdenv.cc
-            openssl
-            openssl.dev
             just
             nixpkgs-fmt
             bc
@@ -162,11 +152,7 @@
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.pkgsStatic.stdenv.cc}/bin/${pkgs.pkgsStatic.stdenv.cc.targetPrefix}cc";
           CC_x86_64_unknown_linux_musl = "${pkgs.pkgsStatic.stdenv.cc}/bin/${pkgs.pkgsStatic.stdenv.cc.targetPrefix}cc";
           
-          # Set OpenSSL environment variables
-          OPENSSL_DIR = "${pkgs.openssl.dev}";
-          OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
-          OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include";
-          PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
+          # No OpenSSL environment variables needed - using rustls for TLS
           
           # Automatically configure Git hooks for code quality
           shellHook = ''
