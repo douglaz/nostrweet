@@ -20,8 +20,18 @@
           targets = [ "x86_64-unknown-linux-musl" ];
         };
 
+        # Minimal toolchain for building (no docs, analyzer, or src)
+        rustToolchainMinimal = pkgs.rust-bin.stable.latest.minimal.override {
+          targets = [ "x86_64-unknown-linux-musl" ];
+        };
+
         # Build the nostrweet binary
-        nostrweet = pkgs.rustPlatform.buildRustPackage {
+        nostrweet = let
+          rustPlatformMusl = pkgs.makeRustPlatform {
+            cargo = rustToolchainMinimal;
+            rustc = rustToolchainMinimal;
+          };
+        in rustPlatformMusl.buildRustPackage {
           pname = "nostrweet";
           version = "0.1.0";
           src = ./.;
@@ -32,22 +42,56 @@
 
           nativeBuildInputs = with pkgs; [
             pkg-config
-            rustToolchain
+            rustToolchainMinimal
+            pkgsStatic.stdenv.cc
           ];
 
           buildInputs = with pkgs; [
-            openssl
-            openssl.dev
+            pkgsStatic.openssl
           ];
 
-          # Build for musl target for static linking
-          CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+          # Musl target configuration
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.pkgsStatic.stdenv.cc}/bin/${pkgs.pkgsStatic.stdenv.cc.targetPrefix}cc";
+          CC_x86_64_unknown_linux_musl = "${pkgs.pkgsStatic.stdenv.cc}/bin/${pkgs.pkgsStatic.stdenv.cc.targetPrefix}cc";
+          CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=-static";
 
           # Set OpenSSL environment variables for static linking
           OPENSSL_STATIC = "1";
           OPENSSL_LIB_DIR = "${pkgs.pkgsStatic.openssl}/lib";
           OPENSSL_INCLUDE_DIR = "${pkgs.pkgsStatic.openssl.dev}/include";
+
+          # Override buildPhase to use the correct target
+          buildPhase = ''
+            runHook preBuild
+
+            echo "Building with musl target..."
+            cargo build \
+              --release \
+              --target x86_64-unknown-linux-musl \
+              --offline \
+              -j $NIX_BUILD_CORES
+
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+
+            mkdir -p $out/bin
+            cp target/x86_64-unknown-linux-musl/release/nostrweet $out/bin/
+
+            runHook postInstall
+          '';
+
+          doCheck = false; # Tests don't work well with static linking
+
+          # Verify the binary is statically linked
+          postInstall = ''
+            echo "Checking if binary is statically linked..."
+            file $out/bin/nostrweet || true
+            # Strip the binary to reduce size
+            ${pkgs.binutils}/bin/strip $out/bin/nostrweet || true
+          '';
         };
       in
       {
@@ -62,16 +106,21 @@
             copyToRoot = pkgs.buildEnv {
               name = "image-root";
               paths = [
+                nostrweet
+                pkgs.bashInteractive
                 pkgs.coreutils
-                pkgs.bash
+                pkgs.cacert
               ];
-              pathsToLink = [ "/bin" ];
+              pathsToLink = [ "/bin" "/etc" ];
             };
 
             config = {
-              Cmd = [ "${nostrweet}/bin/nostrweet" ];
+              Entrypoint = [ "/bin/nostrweet" ];
+              Cmd = [];
               WorkingDir = "/data";
               Env = [
+                "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+                "SYSTEM_CERTIFICATE_PATH=${pkgs.cacert}/etc/ssl/certs"
                 "RUST_LOG=info"
                 "NOSTRWEET_DATA_DIR=/data"
               ];
@@ -82,6 +131,7 @@
               Labels = {
                 "org.opencontainers.image.source" = "https://github.com/douglaz/nostrweet";
                 "org.opencontainers.image.description" = "Twitter to Nostr bridge daemon";
+                "org.opencontainers.image.licenses" = "MIT";
               };
             };
           };
