@@ -47,7 +47,8 @@
           ];
 
           buildInputs = with pkgs; [
-            pkgsStatic.openssl
+            pkgsStatic.openssl.dev
+            pkgsStatic.openssl.out
           ];
 
           # Musl target configuration
@@ -57,8 +58,10 @@
 
           # Set OpenSSL environment variables for static linking
           OPENSSL_STATIC = "1";
-          OPENSSL_LIB_DIR = "${pkgs.pkgsStatic.openssl}/lib";
+          OPENSSL_LIB_DIR = "${pkgs.pkgsStatic.openssl.out}/lib";
           OPENSSL_INCLUDE_DIR = "${pkgs.pkgsStatic.openssl.dev}/include";
+          PKG_CONFIG_PATH = "${pkgs.pkgsStatic.openssl.dev}/lib/pkgconfig";
+          PKG_CONFIG_ALL_STATIC = "1";
 
           # Override buildPhase to use the correct target
           buildPhase = ''
