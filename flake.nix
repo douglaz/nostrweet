@@ -38,6 +38,9 @@
 
           cargoLock = {
             lockFile = ./Cargo.lock;
+            outputHashes = {
+              "nostr-0.43.0" = "sha256-RHiHbZ5uddwCIgfiN8C5/mgftXXTxj4uiNdrr6cREdY=";
+            };
           };
 
           nativeBuildInputs = with pkgs; [
