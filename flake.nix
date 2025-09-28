@@ -14,13 +14,79 @@
           inherit system;
           overlays = [ (import rust-overlay) ];
         };
-        
+
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" ];
           targets = [ "x86_64-unknown-linux-musl" ];
         };
+
+        # Build the nostrweet binary
+        nostrweet = pkgs.rustPlatform.buildRustPackage {
+          pname = "nostrweet";
+          version = "0.1.0";
+          src = ./.;
+
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+          };
+
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+            rustToolchain
+          ];
+
+          buildInputs = with pkgs; [
+            openssl
+            openssl.dev
+          ];
+
+          # Build for musl target for static linking
+          CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.pkgsStatic.stdenv.cc}/bin/${pkgs.pkgsStatic.stdenv.cc.targetPrefix}cc";
+
+          # Set OpenSSL environment variables for static linking
+          OPENSSL_STATIC = "1";
+          OPENSSL_LIB_DIR = "${pkgs.pkgsStatic.openssl}/lib";
+          OPENSSL_INCLUDE_DIR = "${pkgs.pkgsStatic.openssl.dev}/include";
+        };
       in
       {
+        packages = {
+          default = nostrweet;
+
+          # Docker image output
+          dockerImage = pkgs.dockerTools.buildImage {
+            name = "nostrweet";
+            tag = "latest";
+
+            copyToRoot = pkgs.buildEnv {
+              name = "image-root";
+              paths = [
+                pkgs.coreutils
+                pkgs.bash
+              ];
+              pathsToLink = [ "/bin" ];
+            };
+
+            config = {
+              Cmd = [ "${nostrweet}/bin/nostrweet" ];
+              WorkingDir = "/data";
+              Env = [
+                "RUST_LOG=info"
+                "NOSTRWEET_DATA_DIR=/data"
+              ];
+              Volumes = {
+                "/data" = {};
+              };
+              ExposedPorts = {};
+              Labels = {
+                "org.opencontainers.image.source" = "https://github.com/douglaz/nostrweet";
+                "org.opencontainers.image.description" = "Twitter to Nostr bridge daemon";
+              };
+            };
+          };
+        };
+
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             bashInteractive

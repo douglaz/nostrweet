@@ -36,7 +36,7 @@ jobs:
       - name: Build Docker image with Nix
         run: |
           echo "Building Docker image with Nix..."
-          nix build .#dockerImage
+          nix build .#packages.x86_64-linux.dockerImage
 
           # Load the image into Docker
           docker load < result
