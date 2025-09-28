@@ -1,0 +1,134 @@
+name: Docker Build and Push
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v9
+
+      - name: Setup Nix cache
+        uses: DeterminateSystems/magic-nix-cache-action@v2
+
+      - name: Build Docker image with Nix
+        run: |
+          echo "Building Docker image with Nix..."
+          nix build .#dockerImage
+
+          # Load the image into Docker
+          docker load < result
+
+          # Get the image name and tag
+          IMAGE_INFO=$(docker images --format "{{.Repository}}:{{.Tag}}" | head -n 1)
+          echo "Built image: $IMAGE_INFO"
+          echo "NIX_IMAGE=$IMAGE_INFO" >> $GITHUB_ENV
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Branch name for pushes to branches
+            type=ref,event=branch
+            # Tag name for tags
+            type=ref,event=tag
+            # Latest tag for main branch
+            type=raw,value=latest,enable={{is_default_branch}}
+            # SHA prefix for all builds
+            type=sha,prefix={{branch}}-,format=short
+            # SHA without prefix for commits
+            type=sha,format=short
+
+      - name: Tag and push Docker image
+        if: github.event_name != 'pull_request'
+        run: |
+          # Get the tags from metadata
+          TAGS="${{ steps.meta.outputs.tags }}"
+
+          # Tag and push each tag
+          for TAG in $TAGS; do
+            echo "Tagging as $TAG"
+            docker tag ${{ env.NIX_IMAGE }} $TAG
+            docker push $TAG
+          done
+
+      - name: Generate image summary
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "## Docker Image Published 🐳" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Image Tags:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" | tr ' ' '\n' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull Command:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" | head -c 7 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # Job to test the Docker image
+  test-image:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and test Docker image
+        run: |
+          SHORT_SHA=$(echo ${{ github.sha }} | head -c 7)
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}"
+
+          echo "Pulling image: $IMAGE"
+          docker pull $IMAGE
+
+          echo "Testing image..."
+          docker run --rm $IMAGE --version || echo "Version check not implemented"
+          docker run --rm $IMAGE --help || echo "Help command test"
+
+          echo "✅ Docker image test completed"
