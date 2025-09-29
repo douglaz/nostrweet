@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
-use nostr_sdk::{Metadata, prelude::*};
+use nostr_sdk::{Filter, Kind, Metadata, prelude::*};
 use std::collections::HashSet;
 use std::path::Path;
+use std::time::Duration;
 use tracing::{debug, info};
 
 use crate::{keys, storage, twitter};
@@ -138,6 +139,46 @@ pub async fn post_referenced_profiles(
     }
 
     Ok(posted_count)
+}
+
+/// Check if a profile exists for a specific user on Nostr
+/// Returns true if a profile (metadata event) exists for the user
+pub async fn check_profile_exists(
+    username: &str,
+    client: &nostr_sdk::Client,
+    data_dir: &Path,
+    mnemonic: Option<&str>,
+) -> Result<bool> {
+    debug!("Checking if profile exists for @{username}");
+
+    // Check if profile exists locally first
+    let profile_path = match storage::find_latest_user_profile(username, data_dir)? {
+        Some(path) => path,
+        None => {
+            debug!("Profile for @{username} not found locally");
+            return Ok(false);
+        }
+    };
+
+    // Load the user profile to get the user ID
+    let user = storage::load_user_from_file(&profile_path)?;
+    let user_keys = keys::get_keys_for_tweet(&user.id, mnemonic)?;
+    let pubkey = user_keys.public_key();
+
+    // Query for metadata events (Kind 0) from this pubkey
+    let filter = Filter::new().author(pubkey).kind(Kind::Metadata).limit(1);
+
+    // Try to query the relays for existing events
+    let events = client.fetch_events(filter, Duration::from_secs(10)).await?;
+    let has_profile = !events.is_empty();
+
+    if has_profile {
+        debug!("Profile exists for @{username} on Nostr");
+    } else {
+        debug!("No profile found for @{username} on Nostr");
+    }
+
+    Ok(has_profile)
 }
 
 /// Check which profiles need to be posted (not already posted or outdated)
