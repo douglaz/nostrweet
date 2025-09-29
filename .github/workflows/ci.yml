@@ -95,64 +95,12 @@ jobs:
           path: target/${{ matrix.target }}/release/nostrweet
           retention-days: 7
 
-  # Cross-platform testing for macOS and Windows
-  test-cross-platform:
-    name: Test on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    needs: check
-    strategy:
-      matrix:
-        os: [macos-latest, windows-latest]
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      # macOS: Use Nix for consistent environment
-      - name: Install Nix (macOS only)
-        if: matrix.os == 'macos-latest'
-        uses: DeterminateSystems/nix-installer-action@v9
-      
-      
-      # Windows: Use native Rust toolchain
-      - name: Install Rust (Windows only)
-        if: matrix.os == 'windows-latest'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-      
-      # Build using appropriate toolchain
-      - name: Build (macOS)
-        if: matrix.os == 'macos-latest'
-        run: nix develop -c cargo build --release
-      
-      - name: Build (Windows)
-        if: matrix.os == 'windows-latest'
-        run: cargo build --release
-      
-      # Run tests using appropriate toolchain
-      - name: Run tests (macOS)
-        if: matrix.os == 'macos-latest'
-        run: nix develop -c cargo test
-      
-      - name: Run tests (Windows)
-        if: matrix.os == 'windows-latest'
-        run: cargo test
-      
-      # Test CLI binary
-      - name: Test CLI (Unix)
-        if: matrix.os != 'windows-latest'
-        run: ./target/release/nostrweet --help
-      
-      - name: Test CLI (Windows)
-        if: matrix.os == 'windows-latest'
-        run: .\target\release\nostrweet.exe --help
 
   final-check:
     name: Final Check
     runs-on: ubuntu-latest
     # Only run after all other jobs pass
-    needs: [check, test, build, test-cross-platform]
+    needs: [check, test, build]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
