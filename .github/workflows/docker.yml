@@ -109,7 +109,8 @@ jobs:
   test-image:
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
+    # Only run this job if images were actually pushed (not on PRs)
+    if: github.event_name == 'push'
     permissions:
       contents: read
       packages: read
