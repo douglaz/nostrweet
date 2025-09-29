@@ -67,10 +67,8 @@ jobs:
             type=ref,event=tag
             # Latest tag for main branch
             type=raw,value=latest,enable={{is_default_branch}}
-            # SHA prefix for all builds
-            type=sha,prefix={{branch}}-,format=short
-            # SHA without prefix for commits
-            type=sha,format=short
+            # SHA with sha- prefix for all commits
+            type=sha,prefix=sha-,format=short
 
       - name: Tag and push Docker image
         if: github.event_name != 'pull_request'
@@ -102,7 +100,7 @@ jobs:
           echo "### Pull Command:" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           SHORT_SHA=$(echo ${{ github.sha }} | head -c 7)
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
   # Job to test the Docker image
@@ -129,7 +127,8 @@ jobs:
       - name: Pull and test Docker image
         run: |
           SHORT_SHA=$(echo ${{ github.sha }} | head -c 7)
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}"
+          # Use sha- prefix for the tag as that's what the metadata action creates
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}"
 
           echo "Pulling image: $IMAGE"
           docker pull $IMAGE
