@@ -36,56 +36,30 @@ jobs:
     name: Nightly Build (${{ matrix.target.name }})
     needs: check-changes
     if: needs.check-changes.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: ${{ matrix.target.os }}
-    
+    runs-on: ubuntu-latest
+
     strategy:
       matrix:
         target:
+          - name: linux-x86_64-gnu
+            rust-target: x86_64-unknown-linux-gnu
+            artifact-name: nostrweet-nightly-linux-x86_64-gnu
+            binary-name: nostrweet
+
           - name: linux-x86_64-static
-            os: ubuntu-latest
             rust-target: x86_64-unknown-linux-musl
             artifact-name: nostrweet-nightly-linux-x86_64-static
             binary-name: nostrweet
-            archive-ext: tar.gz
-            
-          - name: macos-x86_64
-            os: macos-latest
-            rust-target: x86_64-apple-darwin
-            artifact-name: nostrweet-nightly-macos-x86_64
-            binary-name: nostrweet
-            archive-ext: tar.gz
-            
-          - name: macos-aarch64
-            os: macos-latest
-            rust-target: aarch64-apple-darwin
-            artifact-name: nostrweet-nightly-macos-aarch64
-            binary-name: nostrweet
-            archive-ext: tar.gz
-            
-          - name: windows-x86_64
-            os: windows-latest
-            rust-target: x86_64-pc-windows-msvc
-            artifact-name: nostrweet-nightly-windows-x86_64
-            binary-name: nostrweet.exe
-            archive-ext: zip
     
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Nix (Linux)
-        if: matrix.target.os == 'ubuntu-latest'
+
+      - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v9
-      
-      - name: Setup Nix cache (Linux)
-        if: matrix.target.os == 'ubuntu-latest'
+
+      - name: Setup Nix cache
         uses: DeterminateSystems/magic-nix-cache-action@v2
-      
-      - name: Install Rust (non-Linux)
-        if: matrix.target.os != 'ubuntu-latest'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target.rust-target }}
-      
+
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
@@ -96,39 +70,24 @@ jobs:
           key: cargo-registry-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             cargo-registry-${{ runner.os }}-
-      
-      - name: Build release binary (Linux)
-        if: matrix.target.os == 'ubuntu-latest'
+
+      - name: Build release binary
         run: |
           nix develop -c cargo build --release --target ${{ matrix.target.rust-target }}
-      
-      - name: Build release binary (non-Linux)
-        if: matrix.target.os != 'ubuntu-latest'
-        run: |
-          cargo build --release --target ${{ matrix.target.rust-target }}
-      
-      - name: Prepare artifacts (Unix)
-        if: matrix.target.os != 'windows-latest'
+
+      - name: Prepare artifacts
         run: |
           mkdir -p dist
           cp target/${{ matrix.target.rust-target }}/release/${{ matrix.target.binary-name }} dist/
           chmod +x dist/${{ matrix.target.binary-name }}
           cd dist
           tar czf ../${{ matrix.target.artifact-name }}.tar.gz *
-      
-      - name: Prepare artifacts (Windows)
-        if: matrix.target.os == 'windows-latest'
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Force -Path dist
-          Copy-Item target/${{ matrix.target.rust-target }}/release/${{ matrix.target.binary-name }} dist/
-          Compress-Archive -Path dist/* -DestinationPath ${{ matrix.target.artifact-name }}.zip
-      
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target.artifact-name }}
-          path: ${{ matrix.target.artifact-name }}.${{ matrix.target.archive-ext }}
+          path: ${{ matrix.target.artifact-name }}.tar.gz
           retention-days: 7
 
   update-nightly-release:
@@ -149,7 +108,7 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release-files
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec mv {} release-files/ \;
+          find artifacts -type f -name "*.tar.gz" -exec mv {} release-files/ \;
           ls -la release-files/
       
       - name: Get date and commit
@@ -192,11 +151,9 @@ jobs:
           - `NOSTRWEET_PRIVATE_KEY` - Nostr private key (hex format)
           
           ### Available Binaries
-          
-          - `nostrweet-nightly-linux-x86_64-static.tar.gz` - Linux x86_64 (fully static binary)
-          - `nostrweet-nightly-macos-x86_64.tar.gz` - macOS Intel
-          - `nostrweet-nightly-macos-aarch64.tar.gz` - macOS Apple Silicon
-          - `nostrweet-nightly-windows-x86_64.zip` - Windows x86_64
+
+          - `nostrweet-nightly-linux-x86_64-gnu.tar.gz` - Linux x86_64 (GNU libc)
+          - `nostrweet-nightly-linux-x86_64-static.tar.gz` - Linux x86_64 (fully static binary, musl)
           
           EOF
       

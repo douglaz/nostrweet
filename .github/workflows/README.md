@@ -16,12 +16,12 @@ This directory contains automated workflows for the Nostrweet project, all power
 
 ### 2. **Nix (`nix.yml`)**
 - **Triggers**: Changes to flake files, manual dispatch
-- **Purpose**: Nix-specific validation and cross-platform testing
+- **Purpose**: Nix-specific validation and Linux testing
 - **Jobs**:
   - `flake-check`: Validates Nix flake configuration
   - `build-with-nix`: Tests building with Nix development shell
   - `shell-test`: Validates development environment setup
-  - `cross-platform-test`: Tests on Ubuntu and macOS
+  - `cross-platform-test`: Tests on Ubuntu
   - `update-lock-file`: Checks for available dependency updates
 
 ### 3. **Release (`release.yml`)**
@@ -30,7 +30,6 @@ This directory contains automated workflows for the Nostrweet project, all power
 - **Jobs**:
   - `create-release`: Creates GitHub release with release notes
   - `build-release`: Builds release binaries with install scripts
-  - `update-homebrew`: Updates Homebrew formula (when configured)
   - `notify-discord`: Sends Discord notifications (when configured)
 
 ### 4. **Dependencies (`dependencies.yml`)**

@@ -219,35 +219,6 @@ jobs:
           asset_name: nostrweet-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
           asset_content_type: text/plain
 
-  update-homebrew:
-    name: Update Homebrew Formula
-    needs: [create-release, build-release]
-    runs-on: ubuntu-latest
-    if: github.repository_owner == 'yourusername' # Replace with actual owner
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Calculate checksums for Homebrew
-        run: |
-          # Download the musl binary for Homebrew (most compatible)
-          curl -L -o nostrweet.tar.gz \
-            "https://github.com/${{ github.repository }}/releases/download/${{ needs.create-release.outputs.version }}/nostrweet-${{ needs.create-release.outputs.version }}-x86_64-unknown-linux-musl.tar.gz"
-          
-          SHA256=$(sha256sum nostrweet.tar.gz | cut -d' ' -f1)
-          echo "SHA256: $SHA256"
-          echo "HOMEBREW_SHA256=$SHA256" >> $GITHUB_ENV
-
-      - name: Update Homebrew formula
-        run: |
-          echo "🍺 Would update Homebrew formula with:"
-          echo "  Version: ${{ needs.create-release.outputs.version }}"
-          echo "  SHA256: ${{ env.HOMEBREW_SHA256 }}"
-          echo "  URL: https://github.com/${{ github.repository }}/releases/download/${{ needs.create-release.outputs.version }}/nostrweet-${{ needs.create-release.outputs.version }}-x86_64-unknown-linux-musl.tar.gz"
-          
-          # In a real setup, this would create a PR to a homebrew tap repository
-          # For now, just show what would be done
-          echo "ℹ️  Homebrew formula update would be automated here"
 
   notify-discord:
     name: Notify Discord

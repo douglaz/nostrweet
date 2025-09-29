@@ -157,12 +157,8 @@ jobs:
           "
 
   cross-platform-test:
-    name: Cross-platform Compatibility
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-      fail-fast: false
+    name: Linux Compatibility Test
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -173,21 +169,21 @@ jobs:
       - name: Setup Nix cache
         uses: DeterminateSystems/magic-nix-cache-action@v2
 
-      - name: Test flake on ${{ matrix.os }}
+      - name: Test flake on Linux
         run: |
-          echo "🧪 Testing Nix flake on ${{ matrix.os }}..."
-          
+          echo "🧪 Testing Nix flake on Linux..."
+
           # Check flake works
           nix flake check
-          
+
           # Enter development shell and run basic commands
           nix develop -c bash -c "
             echo 'Rust version:' \$(rustc --version)
             echo 'Platform:' \$(rustc -vV | grep host)
-            
+
             # Try a simple build
             cargo check --workspace
-            echo '✅ Cargo check successful on ${{ matrix.os }}'
+            echo '✅ Cargo check successful on Linux'
           "
 
   update-lock-file:

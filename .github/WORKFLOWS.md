@@ -51,7 +51,7 @@ nix flake check
 ### 🧪 Quality Assurance
 - **Multi-stage testing**: unit, integration, doc tests
 - **Code quality**: formatting, linting, clippy
-- **Cross-platform validation**: Ubuntu, macOS
+- **Linux-focused validation**: Ubuntu with both GNU and musl targets
 - **Performance benchmarks** and size analysis
 
 ## 📊 Workflow Details
@@ -76,13 +76,13 @@ nix develop -c cargo build --release --target x86_64-unknown-linux-musl
 ```
 
 ### Nix Workflow (`nix.yml`)
-**Purpose**: Validate Nix flake and cross-platform compatibility
+**Purpose**: Validate Nix flake and Linux compatibility
 
 **Jobs**:
 - `flake-check`: Validates flake configuration
 - `build-with-nix`: Tests building in Nix shell
 - `shell-test`: Validates development environment
-- `cross-platform-test`: Tests on Ubuntu and macOS
+- `cross-platform-test`: Tests on Ubuntu
 - `update-lock-file`: Checks for dependency updates
 
 ### Release Workflow (`release.yml`)
@@ -91,7 +91,6 @@ nix develop -c cargo build --release --target x86_64-unknown-linux-musl
 **Jobs**:
 - `create-release`: Creates GitHub release with notes
 - `build-release`: Builds release binaries with install scripts
-- `update-homebrew`: Updates Homebrew formula (when configured)
 - `notify-discord`: Sends notifications (when configured)
 
 **Artifacts Created**:
@@ -175,7 +174,7 @@ final-check: lint clippy test
 ### Release Requirements
 - ✅ All CI checks pass
 - ✅ Security audit clean
-- ✅ Cross-platform builds successful
+- ✅ Linux builds successful (both GNU and musl)
 - ✅ Documentation up to date
 
 ## 🔍 Monitoring & Observability
@@ -193,7 +192,7 @@ final-check: lint clippy test
 ### Performance
 - Binary size monitoring
 - Build time tracking
-- Cross-compilation validation
+- Linux target compilation validation
 
 ## 🚀 Usage Examples
 
@@ -246,7 +245,6 @@ cargo update
 - **Nix Cache**: Speeds up builds significantly
 - **GitHub Container Registry**: For caching (future)
 - **Discord**: Release notifications (optional)
-- **Homebrew**: Formula updates (configurable)
 
 ## 📈 Benefits
 
