@@ -35,7 +35,7 @@ jobs:
               <title>Nostrweet Documentation</title>
               <style>
                   body { 
-                      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+                      font-family: system-ui, 'Segoe UI', sans-serif; 
                       max-width: 800px; 
                       margin: 2rem auto; 
                       padding: 0 2rem;
