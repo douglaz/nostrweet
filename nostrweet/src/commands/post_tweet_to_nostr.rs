@@ -159,7 +159,29 @@ pub async fn execute(
             }
         }
 
-        // No need to use TwitterClient for referenced tweets - we've already checked the cache
+        // Check if we still have referenced tweets without data and need to fetch from API
+        let has_unenriched_refs = tweet
+            .referenced_tweets
+            .as_ref()
+            .map(|refs| refs.iter().any(|r| r.data.is_none()))
+            .unwrap_or(false);
+
+        if has_unenriched_refs && bearer_token.is_some() {
+            debug!("Some referenced tweets not found in cache, fetching from Twitter API");
+            let bearer = bearer_token.unwrap();
+            let client = twitter::TwitterClient::new(data_dir, bearer)
+                .context("Failed to initialize Twitter client for enriching referenced tweets")?;
+
+            // This will fetch full tweet data including note_tweet for long tweets
+            client
+                .enrich_referenced_tweets(&mut tweet, Some(data_dir))
+                .await
+                .context("Failed to enrich referenced tweets from API")?;
+
+            info!("Successfully enriched referenced tweets from Twitter API");
+        } else if has_unenriched_refs {
+            debug!("Referenced tweets missing but no bearer token available to fetch them");
+        }
     }
 
     // Extract Twitter user ID from the tweet data
