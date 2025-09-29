@@ -108,8 +108,25 @@
                 pkgs.bashInteractive
                 pkgs.coreutils
                 pkgs.cacert
+                pkgs.curl
+                pkgs.jq
+                pkgs.netcat
+                pkgs.procps        # Provides ps command
+                pkgs.htop
+                pkgs.vim
+                pkgs.less
+                pkgs.gnugrep       # Provides grep command
+                pkgs.gawk
+                pkgs.gnused
+                pkgs.findutils
+                pkgs.which
+                pkgs.net-tools
+                pkgs.iputils       # Provides ping
+                pkgs.dnsutils      # Provides dig, nslookup
+                pkgs.gnutar
+                pkgs.file
               ];
-              pathsToLink = [ "/bin" "/etc" ];
+              pathsToLink = [ "/bin" "/etc" "/share" ];
             };
 
             config = {
