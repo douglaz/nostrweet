@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -31,6 +31,8 @@ pub struct UserState {
     pub _username: String,
     pub last_poll_time: Option<Instant>,
     pub last_success_time: Option<Instant>,
+    pub last_profile_post_time: Option<Instant>,
+    pub profile_posted: bool,
     pub consecutive_failures: u32,
     pub total_tweets_downloaded: u64,
     pub total_tweets_posted: u64,
@@ -43,6 +45,8 @@ impl UserState {
             _username: username,
             last_poll_time: None,
             last_success_time: None,
+            last_profile_post_time: None,
+            profile_posted: false,
             consecutive_failures: 0,
             total_tweets_downloaded: 0,
             total_tweets_posted: 0,
@@ -455,6 +459,32 @@ async fn process_user_v2(state: DaemonState, username: String) -> Result<()> {
     // Apply rate limiting
     state.rate_limiter.lock().await.wait_if_needed().await;
 
+    // Check and post user profile if needed
+    {
+        let user_states = state.user_states.read().await;
+        let user_state = user_states.get(&username).cloned();
+        drop(user_states); // Release the lock early
+
+        if let Some(user_state) = user_state {
+            // Check if profile needs to be posted or refreshed
+            if !user_state.profile_posted
+                || should_refresh_profile(user_state.last_profile_post_time)
+            {
+                match ensure_user_profile_posted(&state, &username).await {
+                    Ok(posted) => {
+                        if posted {
+                            debug!("Profile posted/updated for @{username}");
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to ensure profile for @{username}: {e}");
+                        // Don't fail the whole process if profile posting fails
+                    }
+                }
+            }
+        }
+    }
+
     // Process and track results
     let result = process_user_tweets(&state, &username).await;
 
@@ -724,6 +754,81 @@ pub async fn is_tweet_posted_to_nostr(
             warn!("Failed to check if tweet {tweet_id} exists on relay: {e}");
             Ok(false)
         }
+    }
+}
+
+// Profile management functions
+
+/// Check if profile refresh is needed (profile older than 24 hours)
+fn should_refresh_profile(last_post_time: Option<Instant>) -> bool {
+    const PROFILE_REFRESH_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60); // 24 hours
+
+    match last_post_time {
+        None => true, // Never posted
+        Some(time) => time.elapsed() > PROFILE_REFRESH_INTERVAL,
+    }
+}
+
+/// Ensure user profile is posted to Nostr
+async fn ensure_user_profile_posted(state: &DaemonState, username: &str) -> Result<bool> {
+    debug!("Checking profile status for @{username}");
+
+    // Check if profile exists on Nostr
+    let profile_exists = nostr_profile::check_profile_exists(
+        username,
+        &state.nostr_client,
+        &state.config.data_dir,
+        state.config.mnemonic.as_deref(),
+    )
+    .await?;
+
+    if !profile_exists {
+        info!("Profile not found for @{username}, posting now");
+        return post_user_profile(state, username).await;
+    }
+
+    debug!("Profile already exists for @{username}");
+    Ok(false)
+}
+
+/// Post or update user profile to Nostr
+async fn post_user_profile(state: &DaemonState, username: &str) -> Result<bool> {
+    info!("Posting profile for @{username} to Nostr");
+
+    // First, download the latest profile from Twitter
+    debug!("Downloading latest profile for @{username} from Twitter");
+    state
+        .twitter_client
+        .download_user_profiles(&[username.to_string()], &state.config.data_dir)
+        .await?;
+
+    // Create a set with just this username
+    let mut usernames = HashSet::new();
+    usernames.insert(username.to_string());
+
+    // Post the profile to Nostr
+    let posted_count = nostr_profile::post_referenced_profiles(
+        &usernames,
+        &state.nostr_client,
+        &state.config.data_dir,
+        state.config.mnemonic.as_deref(),
+    )
+    .await?;
+
+    if posted_count > 0 {
+        info!("Successfully posted profile for @{username}");
+
+        // Update user state
+        let mut user_states = state.user_states.write().await;
+        if let Some(user_state) = user_states.get_mut(username) {
+            user_state.last_profile_post_time = Some(Instant::now());
+            user_state.profile_posted = true;
+        }
+
+        Ok(true)
+    } else {
+        warn!("Failed to post profile for @{username}");
+        Ok(false)
     }
 }
 
