@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -802,33 +802,32 @@ async fn post_user_profile(state: &DaemonState, username: &str) -> Result<bool> 
         .download_user_profiles(&[username.to_string()], &state.config.data_dir)
         .await?;
 
-    // Create a set with just this username
-    let mut usernames = HashSet::new();
-    usernames.insert(username.to_string());
-
-    // Post the profile to Nostr
-    let posted_count = nostr_profile::post_referenced_profiles(
-        &usernames,
+    // Post the profile and relay list to Nostr
+    match nostr_profile::post_user_profile_with_relay_list(
+        username,
         &state.nostr_client,
         &state.config.data_dir,
         state.config.mnemonic.as_deref(),
+        &state.config.relays,
     )
-    .await?;
+    .await
+    {
+        Ok(()) => {
+            info!("Successfully posted profile and relay list for @{username}");
 
-    if posted_count > 0 {
-        info!("Successfully posted profile for @{username}");
+            // Update user state
+            let mut user_states = state.user_states.write().await;
+            if let Some(user_state) = user_states.get_mut(username) {
+                user_state.last_profile_post_time = Some(Instant::now());
+                user_state.profile_posted = true;
+            }
 
-        // Update user state
-        let mut user_states = state.user_states.write().await;
-        if let Some(user_state) = user_states.get_mut(username) {
-            user_state.last_profile_post_time = Some(Instant::now());
-            user_state.profile_posted = true;
+            Ok(true)
         }
-
-        Ok(true)
-    } else {
-        warn!("Failed to post profile for @{username}");
-        Ok(false)
+        Err(e) => {
+            warn!("Failed to post profile for @{username}: {e}");
+            Ok(false)
+        }
     }
 }
 

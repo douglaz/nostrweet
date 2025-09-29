@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 use tracing::{debug, info};
 
-use crate::{keys, storage, twitter};
+use crate::{keys, nostr, storage, twitter};
 
 /// Generate the profile disclaimer text for a given username
 fn get_profile_disclaimer(username: &str) -> String {
@@ -94,6 +94,35 @@ async fn post_single_profile(
     debug!("Successfully published profile for @{username} with event ID: {event_id:?}");
 
     Ok(event_id)
+}
+
+/// Posts a relay list for a specific Twitter user
+async fn post_relay_list_for_user(
+    username: &str,
+    client: &nostr_sdk::Client,
+    data_dir: &Path,
+    mnemonic: Option<&str>,
+    relays: &[String],
+) -> Result<EventId> {
+    debug!("Posting relay list for @{username}");
+
+    // Find the user profile to get the user ID
+    let profile_path = storage::find_latest_user_profile(username, data_dir)?
+        .ok_or_else(|| anyhow::anyhow!("No profile found for user '{username}'"))?;
+
+    let user = storage::load_user_from_file(&profile_path)?;
+    let user_keys = keys::get_keys_for_tweet(&user.id, mnemonic)?;
+
+    // Use the existing update_relay_list function from the nostr module
+    nostr::update_relay_list(client, &user_keys, relays)
+        .await
+        .with_context(|| format!("Failed to update relay list for @{username}"))?;
+
+    debug!("Successfully posted relay list for @{username}");
+
+    // Return a dummy event ID for now (the actual function doesn't return one)
+    // In a real implementation, we might want to modify update_relay_list to return the event ID
+    Ok(EventId::all_zeros())
 }
 
 /// Posts profiles for all referenced users in a tweet to Nostr
@@ -231,4 +260,25 @@ pub async fn filter_profiles_to_post(
     }
 
     Ok(profiles_to_post)
+}
+
+/// Post a user profile and their relay list to Nostr
+pub async fn post_user_profile_with_relay_list(
+    username: &str,
+    client: &nostr_sdk::Client,
+    data_dir: &Path,
+    mnemonic: Option<&str>,
+    relays: &[String],
+) -> Result<()> {
+    info!("Posting profile and relay list for @{username}");
+
+    // First post the profile
+    let profile_event_id = post_single_profile(username, client, data_dir, mnemonic).await?;
+    info!("Posted profile for @{username} with event ID: {profile_event_id:?}");
+
+    // Then post the relay list
+    post_relay_list_for_user(username, client, data_dir, mnemonic, relays).await?;
+    info!("Posted relay list for @{username}");
+
+    Ok(())
 }
