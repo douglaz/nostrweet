@@ -17,47 +17,13 @@ pub async fn execute(
     // Extract tweet ID from URL or use as is
     let tweet_id = twitter::parse_tweet_id(tweet_url_or_id).context("Failed to parse tweet ID")?;
 
-    // Check if we already have the tweet data locally
-    let tweet = if let Some(existing_path) = storage::find_existing_tweet_json(&tweet_id, data_dir)
-    {
-        // Use existing tweet data
-        debug!(
-            "Found existing tweet data: {path}",
-            path = existing_path.display()
-        );
-        storage::load_tweet_from_file(&existing_path).context("Failed to load local tweet data")?
-    } else {
-        // Download the tweet data from the API
-        info!("Downloading tweet {tweet_id}");
+    // Use the new helper function that handles loading from cache or fetching from API
+    // with automatic enrichment of referenced tweets
+    let tweet = storage::load_or_fetch_tweet(&tweet_id, data_dir, Some(bearer_token))
+        .await
+        .with_context(|| format!("Failed to load or fetch tweet {tweet_id}"))?;
 
-        // Download the tweet and its media
-        let client = twitter::TwitterClient::new(data_dir, bearer_token)
-            .context("Failed to initialize Twitter client")?;
-
-        // Download the tweet
-        let mut downloaded_tweet = client
-            .get_tweet(&tweet_id)
-            .await
-            .context("Failed to download tweet")?;
-
-        // Enrich the tweet with referenced tweet data
-        if let Err(e) = client
-            .enrich_referenced_tweets(&mut downloaded_tweet, Some(data_dir))
-            .await
-        {
-            debug!("Failed to enrich referenced tweets: {e}");
-            // Continue with the basic tweet even if enrichment fails
-        }
-
-        info!("Successfully retrieved tweet data");
-
-        // Save tweet data
-        let saved_path = storage::save_tweet(&downloaded_tweet, data_dir)
-            .context("Failed to save tweet data")?;
-        debug!("Saved tweet data to {path}", path = saved_path.display());
-
-        downloaded_tweet
-    };
+    info!("Successfully retrieved tweet data");
 
     // Download media
     let media_results = media::download_media(&tweet, data_dir, Some(bearer_token))

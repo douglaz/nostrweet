@@ -36,43 +36,11 @@ impl ShowTweetCommand {
 
         info!("Showing tweet {tweet_id}");
 
-        // Check if tweet already exists in cache
-        let tweet = if let Some(existing_path) =
-            storage::find_existing_tweet_json(&tweet_id, data_dir)
-        {
-            info!(
-                "Found cached tweet at: {path}",
-                path = existing_path.display()
-            );
-            storage::load_tweet_from_file(&existing_path)?
-        } else {
-            info!("Tweet not in cache, downloading...");
-
-            // Create Twitter client and fetch tweet
-            let bearer = bearer_token
-                .ok_or_else(|| anyhow::anyhow!("Bearer token required for downloading tweets"))?;
-            let client = twitter::TwitterClient::new(data_dir, bearer)
-                .context("Failed to initialize Twitter client")?;
-
-            let mut downloaded_tweet = client
-                .get_tweet(&tweet_id)
-                .await
-                .context("Failed to download tweet")?;
-
-            // Enrich the tweet with referenced tweet data
-            if let Err(e) = client
-                .enrich_referenced_tweets(&mut downloaded_tweet, Some(data_dir))
-                .await
-            {
-                debug!("Failed to enrich referenced tweets: {e}");
-            }
-
-            // Save to cache
-            let save_path = storage::save_tweet(&downloaded_tweet, data_dir)?;
-            info!("Saved tweet to: {path}", path = save_path.display());
-
-            downloaded_tweet
-        };
+        // Use the new helper function that handles loading from cache or fetching from API
+        // with automatic enrichment of referenced tweets
+        let tweet = storage::load_or_fetch_tweet(&tweet_id, data_dir, bearer_token)
+            .await
+            .with_context(|| format!("Failed to load or fetch tweet {tweet_id}"))?;
 
         // Extract media URLs from the tweet
         let media_urls = media::extract_media_urls_from_tweet(&tweet);
