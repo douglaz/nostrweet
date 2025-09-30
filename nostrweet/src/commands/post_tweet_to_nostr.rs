@@ -87,102 +87,11 @@ pub async fn execute(
         }
     }
 
-    // First, check if we have already downloaded the tweet
-    let mut tweet =
-        if let Some(existing_path) = storage::find_existing_tweet_json(&tweet_id, data_dir) {
-            debug!(
-                "Found existing tweet data at {path}",
-                path = existing_path.display()
-            );
-            storage::load_tweet_from_file(&existing_path)
-                .with_context(|| format!("Failed to load existing tweet data for {tweet_id}"))?
-        } else {
-            // If not, download it first
-            debug!("Tweet {tweet_id} not found locally, downloading it first");
-
-            let bearer = bearer_token
-                .ok_or_else(|| anyhow::anyhow!("Bearer token required to download tweet"))?;
-            let client = twitter::TwitterClient::new(data_dir, bearer)
-                .context("Failed to initialize Twitter client")?;
-
-            let tweet = client
-                .get_tweet(&tweet_id)
-                .await
-                .with_context(|| format!("Failed to download tweet {tweet_id}"))?;
-
-            // Save the tweet locally
-            let saved_path = storage::save_tweet(&tweet, data_dir)
-                .with_context(|| format!("Failed to save tweet data for {tweet_id}"))?;
-            debug!("Saved tweet data to {path}", path = saved_path.display());
-
-            tweet
-        };
-
-    // Check if any referenced tweets are available in the local cache
-    if tweet.referenced_tweets.is_some() {
-        // First try to load referenced tweets from cache without creating a client
-        if let Some(ref_tweets) = &mut tweet.referenced_tweets {
-            for ref_tweet in ref_tweets {
-                if ref_tweet.data.is_none() {
-                    debug!(
-                        "Looking for referenced tweet {id} in data_dir: {dir}",
-                        id = ref_tweet.id,
-                        dir = data_dir.display()
-                    );
-
-                    // First check in the current output directory
-                    if let Some(path) = storage::find_existing_tweet_json(&ref_tweet.id, data_dir) {
-                        match storage::load_tweet_from_file(&path) {
-                            Ok(referenced_tweet) => {
-                                debug!(
-                                    "Found referenced tweet {id} in cache: {path}",
-                                    id = ref_tweet.id,
-                                    path = path.display()
-                                );
-                                ref_tweet.data = Some(Box::new(referenced_tweet));
-                            }
-                            Err(e) => {
-                                debug!(
-                                    "Error loading referenced tweet {id} from cache: {e}",
-                                    id = ref_tweet.id
-                                );
-                                // Continue without this referenced tweet
-                            }
-                        }
-                    } else {
-                        debug!(
-                            "Referenced tweet {id} not found in cache, continuing without it",
-                            id = ref_tweet.id
-                        );
-                    }
-                }
-            }
-        }
-
-        // Check if we still have referenced tweets without data and need to fetch from API
-        let has_unenriched_refs = tweet
-            .referenced_tweets
-            .as_ref()
-            .map(|refs| refs.iter().any(|r| r.data.is_none()))
-            .unwrap_or(false);
-
-        if has_unenriched_refs && bearer_token.is_some() {
-            debug!("Some referenced tweets not found in cache, fetching from Twitter API");
-            let bearer = bearer_token.unwrap();
-            let client = twitter::TwitterClient::new(data_dir, bearer)
-                .context("Failed to initialize Twitter client for enriching referenced tweets")?;
-
-            // This will fetch full tweet data including note_tweet for long tweets
-            client
-                .enrich_referenced_tweets(&mut tweet, Some(data_dir))
-                .await
-                .context("Failed to enrich referenced tweets from API")?;
-
-            info!("Successfully enriched referenced tweets from Twitter API");
-        } else if has_unenriched_refs {
-            debug!("Referenced tweets missing but no bearer token available to fetch them");
-        }
-    }
+    // Use the new helper function that handles loading from cache or fetching from API
+    // with automatic enrichment of referenced tweets
+    let tweet = storage::load_or_fetch_tweet(&tweet_id, data_dir, bearer_token)
+        .await
+        .with_context(|| format!("Failed to load or fetch tweet {tweet_id}"))?;
 
     // Extract Twitter user ID from the tweet data
     let twitter_user_id = tweet.author.id.clone();

@@ -96,10 +96,9 @@ pub async fn execute(
             }
         }
 
-        // Enrich referenced tweets (always)
-        if let Err(e) = client
-            .enrich_referenced_tweets(&mut tweet_to_save, Some(data_dir))
-            .await
+        // Enrich referenced tweets using the centralized helper
+        if let Err(e) =
+            storage::ensure_tweet_enriched(&mut tweet_to_save, data_dir, Some(bearer_token)).await
         {
             debug!("Failed to enrich referenced tweets for {tweet_id}: {e}");
         }

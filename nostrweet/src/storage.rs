@@ -6,6 +6,8 @@ use crate::filename_utils::{
     nostr_event_filename, not_found_filename, sanitized_file_path, tweet_filename,
     user_profile_filename,
 };
+#[cfg(test)]
+use crate::twitter::{NoteTweet, ReferencedTweet};
 use crate::twitter::{Tweet, User};
 use anyhow::{Context, Result};
 use std::fs;
@@ -225,6 +227,113 @@ pub fn mark_tweet_as_not_found(tweet_id: &str, data_dir: &Path) -> Result<()> {
         "Marked tweet {tweet_id} as not found at {path}",
         path = file_path.display()
     );
+    Ok(())
+}
+
+// ============================================================================
+// Helper Functions for Common Tweet Loading and Enrichment Pattern
+// ============================================================================
+
+/// Load a tweet from cache or fetch from API with automatic enrichment of referenced tweets
+///
+/// This function provides a consistent way to load tweets across all commands:
+/// 1. First checks the local cache for the tweet
+/// 2. If found in cache, ensures referenced tweets are enriched
+/// 3. If not in cache, fetches from Twitter API
+/// 4. Always enriches referenced tweets to get full content (including note_tweet)
+/// 5. Saves the enriched tweet to cache
+///
+/// This prevents issues with truncated referenced tweets (retweets/quotes) that
+/// occur when the API's initial expansion doesn't include note_tweet fields.
+pub async fn load_or_fetch_tweet(
+    tweet_id: &str,
+    data_dir: &Path,
+    bearer_token: Option<&str>,
+) -> Result<Tweet> {
+    // Step 1: Check if we have the tweet in cache
+    if let Some(existing_path) = find_existing_tweet_json(tweet_id, data_dir) {
+        debug!(
+            "Found existing tweet data at {path}",
+            path = existing_path.display()
+        );
+        let mut tweet = load_tweet_from_file(&existing_path)
+            .with_context(|| format!("Failed to load existing tweet data for {tweet_id}"))?;
+
+        // Step 2: Ensure referenced tweets are enriched (may need API call)
+        ensure_tweet_enriched(&mut tweet, data_dir, bearer_token)
+            .await
+            .with_context(|| format!("Failed to enrich referenced tweets for {tweet_id}"))?;
+
+        return Ok(tweet);
+    }
+
+    // Step 3: Not in cache - need to fetch from Twitter API
+    debug!("Tweet {tweet_id} not found locally, downloading from Twitter API");
+
+    let bearer =
+        bearer_token.ok_or_else(|| anyhow::anyhow!("Bearer token required to download tweet"))?;
+
+    let client = crate::twitter::TwitterClient::new(data_dir, bearer)
+        .context("Failed to initialize Twitter client")?;
+
+    let mut tweet = client
+        .get_tweet(tweet_id)
+        .await
+        .with_context(|| format!("Failed to download tweet {tweet_id}"))?;
+
+    // Step 4: Always enrich referenced tweets for complete data
+    if let Err(e) = client
+        .enrich_referenced_tweets(&mut tweet, Some(data_dir))
+        .await
+    {
+        debug!("Failed to enrich referenced tweets: {e}");
+        // Continue with the tweet even if enrichment fails
+    }
+
+    // Step 5: Save the enriched tweet to cache
+    let saved_path = save_tweet(&tweet, data_dir)
+        .with_context(|| format!("Failed to save tweet data for {tweet_id}"))?;
+    debug!("Saved tweet data to {path}", path = saved_path.display());
+
+    Ok(tweet)
+}
+
+/// Ensure a tweet has all its referenced tweets fully enriched with complete data
+///
+/// This function checks if a tweet has unenriched referenced tweets (missing data
+/// or missing note_tweet for long content) and fetches the complete data if needed.
+///
+/// This is crucial for retweets and quotes to display their full content instead
+/// of truncated previews.
+pub async fn ensure_tweet_enriched(
+    tweet: &mut Tweet,
+    data_dir: &Path,
+    bearer_token: Option<&str>,
+) -> Result<()> {
+    // Check if we have referenced tweets that need enrichment
+    let has_unenriched_refs = tweet
+        .referenced_tweets
+        .as_ref()
+        .map(|refs| refs.iter().any(|r| r.data.is_none()))
+        .unwrap_or(false);
+
+    if has_unenriched_refs && bearer_token.is_some() {
+        debug!("Some referenced tweets need enrichment, fetching from Twitter API");
+        let bearer = bearer_token.unwrap();
+        let client = crate::twitter::TwitterClient::new(data_dir, bearer)
+            .context("Failed to initialize Twitter client for enriching referenced tweets")?;
+
+        // This will fetch full tweet data including note_tweet for long tweets
+        client
+            .enrich_referenced_tweets(tweet, Some(data_dir))
+            .await
+            .context("Failed to enrich referenced tweets from API")?;
+
+        info!("Successfully enriched referenced tweets");
+    } else if has_unenriched_refs {
+        debug!("Referenced tweets need enrichment but no bearer token available");
+    }
+
     Ok(())
 }
 
@@ -465,5 +574,103 @@ mod tests {
         let filename = saved_path.file_name().unwrap().to_str().unwrap();
         assert!(!filename.contains('/'));
         assert!(!filename.contains('\\'));
+    }
+
+    #[test]
+    fn test_ensure_tweet_enriched_detects_unenriched_refs() {
+        // Create a tweet with unenriched referenced tweet (simulating the bug case)
+        let mut tweet = Tweet {
+            id: "1965148820234535067".to_string(),
+            text: "RT @elonmusk: This is a test".to_string(),
+            author: User {
+                id: "987654321".to_string(),
+                name: Some("Test User".to_string()),
+                username: "testuser".to_string(),
+                profile_image_url: None,
+                description: None,
+                url: None,
+                entities: None,
+            },
+            referenced_tweets: Some(vec![ReferencedTweet {
+                id: "1234567890".to_string(),
+                type_field: "retweeted".to_string(),
+                // This is the key: data is None, meaning unenriched
+                data: None,
+            }]),
+            attachments: None,
+            created_at: "2023-01-01T00:00:00Z".to_string(),
+            entities: None,
+            includes: None,
+            author_id: Some("987654321".to_string()),
+            note_tweet: None,
+        };
+
+        // Check that the tweet needs enrichment
+        let needs_enrichment = tweet
+            .referenced_tweets
+            .as_ref()
+            .map(|refs| refs.iter().any(|r| r.data.is_none()))
+            .unwrap_or(false);
+
+        assert!(
+            needs_enrichment,
+            "Tweet with unenriched referenced tweets should be detected as needing enrichment"
+        );
+
+        // Now simulate enrichment - adding data to the referenced tweet
+        if let Some(refs) = tweet.referenced_tweets.as_mut() {
+            for referenced in refs.iter_mut() {
+                if referenced.data.is_none() {
+                    // In real code, this would be fetched from API
+                    referenced.data = Some(Box::new(Tweet {
+                        id: referenced.id.clone(),
+                        text: "This is the full text of the referenced tweet that was previously truncated...".to_string(),
+                        author: User {
+                            id: "11111".to_string(),
+                            name: Some("Elon Musk".to_string()),
+                            username: "elonmusk".to_string(),
+                            profile_image_url: None,
+                            description: None,
+                            url: None,
+                            entities: None,
+                        },
+                        referenced_tweets: None,
+                        attachments: None,
+                        created_at: "2023-01-01T00:00:00Z".to_string(),
+                        entities: None,
+                        includes: None,
+                        author_id: Some("11111".to_string()),
+                        note_tweet: Some(NoteTweet {
+                            text: "This is the extended full text of the tweet that would be longer than 280 characters and might have been cut off with ellipsis in the truncated version...".to_string(),
+                        }),
+                    }));
+                }
+            }
+        }
+
+        // After enrichment, it should not need enrichment anymore
+        let needs_enrichment_after = tweet
+            .referenced_tweets
+            .as_ref()
+            .map(|refs| refs.iter().any(|r| r.data.is_none()))
+            .unwrap_or(false);
+
+        assert!(
+            !needs_enrichment_after,
+            "After enrichment, tweet should not need enrichment"
+        );
+
+        // Verify the referenced tweet now has full data
+        let ref_tweet_data = &tweet.referenced_tweets.as_ref().unwrap()[0].data;
+        assert!(
+            ref_tweet_data.is_some(),
+            "Referenced tweet should have data after enrichment"
+        );
+
+        let ref_tweet = ref_tweet_data.as_ref().unwrap();
+        assert!(
+            ref_tweet.note_tweet.is_some(),
+            "Referenced tweet should have note_tweet for long content"
+        );
     }
 }

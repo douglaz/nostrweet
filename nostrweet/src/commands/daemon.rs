@@ -603,11 +603,13 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
         // New tweet - process it
         let mut enriched_tweet = tweet.clone();
 
-        // Enrich with referenced tweets
-        if let Err(e) = state
-            .twitter_client
-            .enrich_referenced_tweets(&mut enriched_tweet, Some(&state.config.data_dir))
-            .await
+        // Enrich with referenced tweets using the centralized helper
+        if let Err(e) = storage::ensure_tweet_enriched(
+            &mut enriched_tweet,
+            &state.config.data_dir,
+            Some(&state.config.bearer_token),
+        )
+        .await
         {
             debug!("Failed to enrich referenced tweets for {tweet_id}: {e}");
         }
