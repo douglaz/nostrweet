@@ -8,7 +8,8 @@ use tracing::{debug, info};
 
 use crate::{
     datetime_utils, media,
-    nostr::{self, format_tweet_as_nostr_content},
+    nostr::{self, format_tweet_as_nostr_content_with_mentions},
+    nostr_linking::NostrLinkResolver,
     storage, twitter,
 };
 
@@ -49,8 +50,10 @@ impl ShowTweetCommand {
         // Create a temporary key for demonstration (in real usage, user would provide keys)
         let keys = Keys::generate();
 
-        // Format tweet content for Nostr
-        let content = format_tweet_as_nostr_content(&tweet, &media_urls);
+        // Format tweet content for Nostr with dummy resolver (no mention resolution needed for display)
+        let mut dummy_resolver = NostrLinkResolver::new(None, None);
+        let (content, _mentioned_pubkeys) =
+            format_tweet_as_nostr_content_with_mentions(&tweet, &media_urls, &mut dummy_resolver)?;
 
         // Parse tweet timestamp
         let timestamp = if let Ok(parsed) = datetime_utils::parse_rfc3339(&tweet.created_at) {
