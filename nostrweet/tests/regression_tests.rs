@@ -734,6 +734,58 @@ mod fixtures {
             }
         }"#).unwrap()
     }
+
+    /// A retweet that previously showed only URLs - regression test for issue where
+    /// retweets were showing URLs instead of full content
+    pub fn retweet_with_full_content() -> Tweet {
+        serde_json::from_value(json!({
+            "id": "1961875988859535529",
+            "text": r#"RT @MedicoLiberdade: Quando falo isso o povo me chama de radical, mas até de "amigos" que são de esquerda me afastei. Isso realmente muda o…"#,
+            "created_at": "2025-08-30T19:37:40.000Z",
+            "author_id": "3916631",
+            "author": {
+                "id": "3916631",
+                "username": "douglaz",
+                "name": "douglaz"
+            },
+            "referenced_tweets": [{
+                "type": "retweeted",
+                "id": "1961747503176356209",
+                "data": {
+                    "id": "1961747503176356209",
+                    "text": r#"Quando falo isso o povo me chama de radical, mas até de "amigos" que são de esquerda me afastei. Isso realmente muda o seu dia a dia, o seu entorno, o seu habito. Certíssima ela.  https://t.co/sxDlqKciKK"#,
+                    "created_at": "2025-08-30T11:07:06.000Z",
+                    "author_id": "1591429677930905601",
+                    "author": {
+                        "id": "1591429677930905601",
+                        "username": "MedicoLiberdade",
+                        "name": "Médicos Pela Liberdade"
+                    },
+                    "entities": {
+                        "urls": [{
+                            "url": "https://t.co/sxDlqKciKK",
+                            "expanded_url": "https://x.com/paulodetarsog/status/1961205947709153594/video/1",
+                            "display_url": "pic.x.com/sxDlqKciKK"
+                        }]
+                    },
+                    "includes": {
+                        "media": [{
+                            "media_key": "7_1961205918026145792",
+                            "type": "video",
+                            "url": null,
+                            "preview_image_url": "https://pbs.twimg.com/ext_tw_video_thumb/1961205918026145792/pu/img/wXL9thaP041tzKSf.jpg",
+                            "variants": [{
+                                "bit_rate": 2176000,
+                                "content_type": "video/mp4",
+                                "url": "https://video.twimg.com/ext_tw_video/1961205918026145792/pu/vid/avc1/720x900/Mmc-zSbPPpZX1a8o.mp4?tag=12"
+                            }]
+                        }]
+                    }
+                }
+            }]
+        }))
+        .unwrap()
+    }
 }
 
 #[test]
@@ -795,6 +847,43 @@ fn test_format_retweet_nostr() {
     assert!(content.contains("🔁 @retweeter retweeted @originaluser:"));
     assert!(content.contains("This is the original tweet content that was retweeted"));
     assert!(content.contains("https://twitter.com/i/status/1234567890123456700"));
+}
+
+#[test]
+fn test_format_retweet_with_full_content() {
+    // Regression test: ensure retweets show full content, not just URLs
+    let tweet = fixtures::retweet_with_full_content();
+    let content = format_tweet_as_nostr_content(&tweet, &[]);
+
+    // Should be formatted as a retweet
+    assert!(content.contains("🔁 @douglaz retweeted @MedicoLiberdade:"));
+
+    // Should contain the full text of the retweeted content
+    assert!(
+        content.contains("Quando falo isso o povo me chama de radical"),
+        "Retweet should contain the full text content, not just URLs"
+    );
+    assert!(
+        content.contains("são de esquerda me afastei"),
+        "Retweet should contain middle part of the text"
+    );
+    assert!(
+        content.contains("Certíssima ela"),
+        "Retweet should contain end of the text"
+    );
+
+    // Should also have the tweet link
+    assert!(content.contains("https://twitter.com/i/status/1961747503176356209"));
+
+    // Regression test: t.co URLs should be expanded to actual media URLs
+    assert!(
+        !content.contains("https://t.co/sxDlqKciKK"),
+        "t.co URL should be expanded, not shown as-is"
+    );
+    assert!(
+        content.contains("video.twimg.com"),
+        "Video URL should be expanded inline in the text"
+    );
 }
 
 #[test]

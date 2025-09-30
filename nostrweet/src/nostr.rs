@@ -1389,11 +1389,14 @@ fn format_retweet(
         content.push_str(&prefix);
 
         // Process the retweeted content
+        // Extract media URLs first so they can be used for URL expansion
+        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
+
         // Legacy formatter without mention resolution
         let mut dummy_resolver = NostrLinkResolver::new(None, None);
         let formatter = TweetFormatter {
             tweet: ref_data,
-            media_urls: &[],
+            media_urls: &tweet_media_urls, // Pass the media URLs for proper expansion
             resolver: &mut dummy_resolver,
         };
         let formatted = formatter.process_content();
@@ -1404,7 +1407,6 @@ fn format_retweet(
 
         // For non-note_tweet cases, add unused media URLs
         if ref_data.note_tweet.is_none() {
-            let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
             for url in &tweet_media_urls {
                 if !formatted.used_media_urls.contains(url) {
                     content.push_str(&format!("{url}\n"));
