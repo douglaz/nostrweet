@@ -93,11 +93,11 @@
         };
       in
       {
-        packages = {
+        packages = rec {
           default = nostrweet;
 
-          # Docker image output
-          dockerImage = pkgs.dockerTools.buildImage {
+          # Docker image with static binary and debugging tools
+          docker = pkgs.dockerTools.buildImage {
             name = "nostrweet";
             tag = "latest";
 
@@ -107,8 +107,8 @@
                 nostrweet
                 pkgs.bashInteractive
                 pkgs.coreutils
-                pkgs.cacert
                 pkgs.curl
+                pkgs.cacert
                 pkgs.jq
                 pkgs.netcat
                 pkgs.procps        # Provides ps command
@@ -137,19 +137,25 @@
                 "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
                 "SYSTEM_CERTIFICATE_PATH=${pkgs.cacert}/etc/ssl/certs"
                 "RUST_LOG=info"
-                "NOSTRWEET_DATA_DIR=/data"
+                "NOSTRWEET_OUTPUT_DIR=/data"
               ];
               Volumes = {
                 "/data" = {};
               };
               ExposedPorts = {};
               Labels = {
-                "org.opencontainers.image.source" = "https://github.com/douglaz/nostrweet";
-                "org.opencontainers.image.description" = "Twitter to Nostr bridge daemon";
+                "org.opencontainers.image.title" = "Nostrweet";
+                "org.opencontainers.image.description" = "Twitter to Nostr bridge - Download tweets and post them to Nostr";
+                "org.opencontainers.image.vendor" = "Nostrweet";
+                "org.opencontainers.image.source" = "https://github.com/${self.owner or "douglaz"}/${self.repo or "nostrweet"}";
+                "org.opencontainers.image.documentation" = "https://github.com/${self.owner or "douglaz"}/${self.repo or "nostrweet"}#readme";
                 "org.opencontainers.image.licenses" = "MIT";
               };
             };
           };
+
+          # Alias for backward compatibility
+          dockerImage = docker;
         };
 
         devShells.default = pkgs.mkShell {
