@@ -20,10 +20,15 @@ jobs:
     runs-on: ubuntu-latest
     # Only run if we have Twitter credentials (not on forks)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.repository == 'douglaz/nostrweet') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-    
+
+    # Prevent concurrent integration test runs
+    concurrency:
+      group: integration-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
+
     env:
       TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

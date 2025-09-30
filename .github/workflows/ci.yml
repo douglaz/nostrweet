@@ -43,6 +43,10 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    # Prevent concurrent test runs to avoid conflicts
+    concurrency:
+      group: test-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -55,12 +59,16 @@ jobs:
 
       - name: Run unit tests
         run: nix develop -c cargo test --lib
+        timeout-minutes: 5
 
       - name: Run integration tests
-        run: nix develop -c cargo test --test '*'
+        # Run tests sequentially with --test-threads=1 to prevent conflicts
+        run: nix develop -c cargo test --test '*' -- --test-threads=1
+        timeout-minutes: 10
 
       - name: Run doc tests
         run: nix develop -c cargo test --doc
+        timeout-minutes: 5
 
   # Integration tests moved to separate workflow: .github/workflows/integration-tests.yml
   # They run on push, PR, schedule, and manual trigger
