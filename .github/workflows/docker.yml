@@ -3,14 +3,17 @@ name: Docker Build and Push
 on:
   push:
     branches:
-      - main
       - master
+      - main
+      - develop
+      - 'release/**'
     tags:
       - 'v*'
   pull_request:
     branches:
-      - main
       - master
+      - main
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -18,6 +21,7 @@ env:
 
 jobs:
   build-and-push:
+    name: Build with Nix and Push to GitHub Container Registry
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -38,7 +42,7 @@ jobs:
       - name: Build Docker image with Nix
         run: |
           echo "Building Docker image with Nix..."
-          nix build .#dockerImage -L
+          nix build .#docker -L
           echo "NIX_DOCKER_IMAGE=$(readlink -f result)" >> $GITHUB_ENV
 
       - name: Load Docker image
@@ -61,21 +65,22 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Branch name for pushes to branches
+            # Default tags
             type=ref,event=branch
-            # Tag name for tags
-            type=ref,event=tag
-            # Latest tag for main branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            # Latest tag for master branch
             type=raw,value=latest,enable={{is_default_branch}}
-            # SHA with sha- prefix for all commits
-            type=sha,prefix=sha-,format=short
+            # Git SHA
+            type=sha,prefix={{branch}}-,format=short
+            # Date-based tag
+            type=raw,value={{date 'YYYYMMDD'}},enable={{is_default_branch}}
 
       - name: Tag and push Docker image
         if: github.event_name != 'pull_request'
         run: |
-          # Get the tags from metadata
-          TAGS="${{ steps.meta.outputs.tags }}"
-
           # Parse tags from metadata
           TAGS="${{ steps.meta.outputs.tags }}"
 
@@ -87,54 +92,45 @@ jobs:
             docker push "$tag"
           done
 
-      - name: Generate image summary
-        if: github.event_name != 'pull_request'
-        run: |
-          echo "## Docker Image Published 🐳" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Image Tags:" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" | tr ' ' '\n' >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Pull Command:" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          SHORT_SHA=$(echo ${{ github.sha }} | head -c 7)
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-
-  # Job to test the Docker image
   test-image:
+    name: Test Docker Image
     needs: build-and-push
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    # Only run this job if images were actually pushed (not on PRs)
-    if: github.event_name == 'push'
-    permissions:
-      contents: read
-      packages: read
+    env:
+      REGISTRY: ghcr.io
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull and test Docker image
+      - name: Test published image
         run: |
-          SHORT_SHA=$(echo ${{ github.sha }} | head -c 7)
-          # Use sha- prefix for the tag as that's what the metadata action creates
-          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${SHORT_SHA}"
+          # Pull the image we just pushed
+          echo "Pulling image: ${{ env.REGISTRY }}/${{ github.repository }}:latest"
+          docker pull ${{ env.REGISTRY }}/${{ github.repository }}:latest
 
-          echo "Pulling image: $IMAGE"
-          docker pull $IMAGE
+          # Test basic functionality
+          echo "Testing --version flag..."
+          docker run --rm ${{ env.REGISTRY }}/${{ github.repository }}:latest --version || true
 
-          echo "Testing image..."
-          docker run --rm $IMAGE --version || echo "Version check not implemented"
-          docker run --rm $IMAGE --help || echo "Help command test"
+          echo "Testing --help flag..."
+          docker run --rm ${{ env.REGISTRY }}/${{ github.repository }}:latest --help
 
-          echo "✅ Docker image test completed"
+          # Test various commands to ensure the binary works
+          echo "Testing decode command..."
+          docker run --rm ${{ env.REGISTRY }}/${{ github.repository }}:latest decode --help
+
+          echo "Testing fetch-tweet command..."
+          docker run --rm ${{ env.REGISTRY }}/${{ github.repository }}:latest fetch-tweet --help
+
+          echo "Testing daemon command..."
+          docker run --rm ${{ env.REGISTRY }}/${{ github.repository }}:latest daemon --help
+
+          # Test with a simple decode operation
+          echo "Testing actual decode operation..."
+          docker run --rm ${{ env.REGISTRY }}/${{ github.repository }}:latest decode invoice "lnbc1" 2>&1 | grep -q "Error" && echo "Expected error for invalid invoice"
+
+          # Show image info
+          echo "Image information:"
+          docker run --rm ${{ env.REGISTRY }}/${{ github.repository }}:latest --version || echo "No version flag"
+          docker images ${{ env.REGISTRY }}/${{ github.repository }}:latest
+
+          echo "✅ Docker image tests completed successfully"

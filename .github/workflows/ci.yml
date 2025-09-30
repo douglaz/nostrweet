@@ -138,85 +138,12 @@ jobs:
         # Continue on failure for security audit (informational)
         continue-on-error: true
 
-  # Docker build and push job
-  docker:
-    name: Build and Push Docker Image
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
-    needs: [check, test]
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v9
-
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build Docker image with Nix
-        run: |
-          nix build .#dockerImage
-          docker load < result
-
-      - name: Get image info
-        id: image-info
-        run: |
-          echo "IMAGE_ID=$(docker images --format '{{.ID}}' | head -1)" >> $GITHUB_OUTPUT
-          echo "REPO_LOWER=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-
-      - name: Generate tags
-        id: tags
-        run: |
-          TAGS=""
-          REPO_LOWER=${{ steps.image-info.outputs.REPO_LOWER }}
-
-          # Always tag with commit SHA
-          TAGS="ghcr.io/${REPO_LOWER}:sha-${GITHUB_SHA::7}"
-
-          # Tag with branch name if not a tag
-          if [[ "${{ github.ref }}" == "refs/heads/"* ]]; then
-            BRANCH_NAME=${GITHUB_REF##*/}
-            TAGS="${TAGS},ghcr.io/${REPO_LOWER}:${BRANCH_NAME}"
-            if [[ "${BRANCH_NAME}" == "master" ]] || [[ "${BRANCH_NAME}" == "main" ]]; then
-              TAGS="${TAGS},ghcr.io/${REPO_LOWER}:latest"
-            fi
-          fi
-
-          # Tag with version if it's a tag
-          if [[ "${{ github.ref }}" == "refs/tags/"* ]]; then
-            VERSION=${GITHUB_REF##*/}
-            TAGS="${TAGS},ghcr.io/${REPO_LOWER}:${VERSION}"
-          fi
-
-          echo "TAGS=${TAGS}" >> $GITHUB_OUTPUT
-
-      - name: Tag and push Docker image
-        run: |
-          IMAGE_ID=${{ steps.image-info.outputs.IMAGE_ID }}
-          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.tags.outputs.TAGS }}"
-
-          for TAG in "${TAG_ARRAY[@]}"; do
-            docker tag ${IMAGE_ID} ${TAG}
-            docker push ${TAG}
-          done
-
   # Release build job (only on tags)
   release:
     name: Release Build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [check, test, build, docker]
+    needs: [check, test, build]
     strategy:
       matrix:
         target:
