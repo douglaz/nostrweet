@@ -20,10 +20,15 @@ jobs:
     runs-on: ubuntu-latest
     # Only run if we have Twitter credentials (not on forks)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.repository == 'douglaz/nostrweet') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-    
+
+    # Prevent concurrent integration test runs
+    concurrency:
+      group: integration-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
+
     env:
       TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -57,15 +62,23 @@ jobs:
     runs-on: ubuntu-latest
     # Only run on schedule or manual trigger for extended testing
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    
+
+    # Prevent concurrent test runs per test type
+    concurrency:
+      group: integration-matrix-${{ matrix.test }}-${{ github.ref }}
+      cancel-in-progress: false
+
     strategy:
       matrix:
         test: [tweet_fetch, profile_sync, daemon_mode, nostr_post, user_tweets, batch_post, cache_management, utils_query]
       fail-fast: false  # Continue running other tests if one fails
-    
+      max-parallel: 1  # Run tests one at a time to prevent conflicts
+
     env:
       TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
-    
+
+    timeout-minutes: 15
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
