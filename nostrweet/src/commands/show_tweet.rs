@@ -29,7 +29,12 @@ pub struct ShowTweetCommand {
 }
 
 impl ShowTweetCommand {
-    pub async fn execute(self, data_dir: &Path, bearer_token: Option<&str>) -> Result<()> {
+    pub async fn execute(
+        self,
+        data_dir: &Path,
+        bearer_token: Option<&str>,
+        mnemonic: Option<&str>,
+    ) -> Result<()> {
         // Parse tweet ID from input (could be ID or URL)
         let tweet_id = twitter::parse_tweet_id(&self.tweet).with_context(|| {
             format!("Failed to parse tweet ID from: {tweet}", tweet = self.tweet)
@@ -50,10 +55,11 @@ impl ShowTweetCommand {
         // Create a temporary key for demonstration (in real usage, user would provide keys)
         let keys = Keys::generate();
 
-        // Format tweet content for Nostr with dummy resolver (no mention resolution needed for display)
-        let mut dummy_resolver = NostrLinkResolver::new(None, None);
+        // Format tweet content for Nostr with resolver (including mnemonic for mention resolution)
+        let data_dir_str = Some(data_dir.to_string_lossy().to_string());
+        let mut resolver = NostrLinkResolver::new(data_dir_str, mnemonic.map(|s| s.to_string()));
         let (content, _mentioned_pubkeys) =
-            format_tweet_as_nostr_content_with_mentions(&tweet, &media_urls, &mut dummy_resolver)?;
+            format_tweet_as_nostr_content_with_mentions(&tweet, &media_urls, &mut resolver)?;
 
         // Parse tweet timestamp
         let timestamp = if let Ok(parsed) = datetime_utils::parse_rfc3339(&tweet.created_at) {
