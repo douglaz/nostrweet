@@ -20,10 +20,50 @@ use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use url::Url as UrlParser;
 
+// ============================================================================
+// Type Safety Wrapper Types for Media URL Extraction
+// ============================================================================
+
+/// Raw tweet data from Twitter API without guaranteed media URL extraction
+#[derive(Debug, Clone)]
+pub struct RawTweet {
+    pub data: crate::twitter::Tweet,
+}
+
+/// Enriched tweet with guaranteed extracted media URLs
+/// This type ensures media URLs have been extracted and are available for formatting
+#[derive(Debug, Clone)]
+pub struct EnrichedTweet {
+    pub data: crate::twitter::Tweet,
+    /// Media URLs extracted from the tweet - guaranteed to be populated
+    pub media_urls: Vec<String>,
+}
+
+/// Conversion from RawTweet to EnrichedTweet that enforces media URL extraction
+impl From<RawTweet> for EnrichedTweet {
+    fn from(raw: RawTweet) -> Self {
+        // Extract media URLs using the existing extraction logic
+        let media_urls = crate::media::extract_media_urls_from_tweet(&raw.data);
+
+        Self {
+            data: raw.data,
+            media_urls,
+        }
+    }
+}
+
+/// Convenience conversion from Tweet to EnrichedTweet
+impl From<crate::twitter::Tweet> for EnrichedTweet {
+    fn from(tweet: crate::twitter::Tweet) -> Self {
+        let raw = RawTweet { data: tweet };
+        raw.into()
+    }
+}
+
 /// Helper struct for formatting tweet content
+/// Now type-safe: only accepts EnrichedTweet with guaranteed media URLs
 struct TweetFormatter<'a> {
-    tweet: &'a crate::twitter::Tweet,
-    media_urls: &'a [String],
+    enriched_tweet: &'a EnrichedTweet,
     resolver: &'a mut NostrLinkResolver,
 }
 
@@ -37,15 +77,16 @@ struct FormattedContent {
 impl TweetFormatter<'_> {
     /// Process tweet content with mention resolution
     fn process_content_with_mentions(&mut self) -> Result<FormattedContent> {
-        // Extract media URLs from the tweet
-        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(self.tweet);
+        // Use guaranteed extracted media URLs from EnrichedTweet
+        let tweet_media_urls = &self.enriched_tweet.media_urls;
 
         // Get the appropriate text (note_tweet has full text, regular text may be truncated)
-        let (raw_base_text, has_note_tweet) = if let Some(note) = &self.tweet.note_tweet {
-            (&note.text as &str, true)
-        } else {
-            (&self.tweet.text as &str, false)
-        };
+        let (raw_base_text, has_note_tweet) =
+            if let Some(note) = &self.enriched_tweet.data.note_tweet {
+                (&note.text as &str, true)
+            } else {
+                (&self.enriched_tweet.data.text as &str, false)
+            };
 
         // Decode HTML entities in the text
         let decoded_base_text = decode_html_entities(raw_base_text);
@@ -53,20 +94,23 @@ impl TweetFormatter<'_> {
 
         // For URL expansion, we need the text that contains t.co URLs
         // Also decode HTML entities in the expansion text
-        let decoded_expansion_text = decode_html_entities(&self.tweet.text);
+        let decoded_expansion_text = decode_html_entities(&self.enriched_tweet.data.text);
         let text_for_expansion = decoded_expansion_text.as_str();
 
         // Expand URLs in the text
         let (expanded_text, mut used_media_urls) = expand_urls_in_text(
             text_for_expansion,
-            self.tweet.entities.as_ref(),
-            &tweet_media_urls,
-            self.tweet,
+            self.enriched_tweet.data.entities.as_ref(),
+            tweet_media_urls,
+            &self.enriched_tweet.data,
         );
 
         // Process mentions in the expanded text
-        let (text_with_mentions, mentioned_pubkeys) =
-            process_mentions_in_text(&expanded_text, self.tweet.entities.as_ref(), self.resolver)?;
+        let (text_with_mentions, mentioned_pubkeys) = process_mentions_in_text(
+            &expanded_text,
+            self.enriched_tweet.data.entities.as_ref(),
+            self.resolver,
+        )?;
 
         // For note_tweet, we need to apply the same expansions to the full text
         let final_text = if has_note_tweet {
@@ -74,15 +118,15 @@ impl TweetFormatter<'_> {
             // Note: note_tweet doesn't have its own entities, so we use the main tweet's entities
             let (note_expanded_text, note_used_media) = expand_urls_in_text(
                 base_text,
-                self.tweet.entities.as_ref(),
-                &tweet_media_urls,
-                self.tweet,
+                self.enriched_tweet.data.entities.as_ref(),
+                tweet_media_urls,
+                &self.enriched_tweet.data,
             );
 
             // Apply mention processing to the expanded note text
             let (note_with_mentions, note_mentioned_pubkeys) = process_mentions_in_text(
                 &note_expanded_text,
-                self.tweet.entities.as_ref(),
+                self.enriched_tweet.data.entities.as_ref(),
                 self.resolver,
             )?;
 
@@ -111,15 +155,16 @@ impl TweetFormatter<'_> {
 
     /// Process tweet content: extract media, expand URLs, handle note_tweet
     fn process_content(&self) -> FormattedContent {
-        // Extract media URLs from the tweet
-        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(self.tweet);
+        // Use guaranteed extracted media URLs from EnrichedTweet
+        let tweet_media_urls = &self.enriched_tweet.media_urls;
 
         // Get the appropriate text (note_tweet has full text, regular text may be truncated)
-        let (raw_base_text, has_note_tweet) = if let Some(note) = &self.tweet.note_tweet {
-            (&note.text as &str, true)
-        } else {
-            (&self.tweet.text as &str, false)
-        };
+        let (raw_base_text, has_note_tweet) =
+            if let Some(note) = &self.enriched_tweet.data.note_tweet {
+                (&note.text as &str, true)
+            } else {
+                (&self.enriched_tweet.data.text as &str, false)
+            };
 
         // Decode HTML entities in the text
         let decoded_base_text = decode_html_entities(raw_base_text);
@@ -127,15 +172,15 @@ impl TweetFormatter<'_> {
 
         // For URL expansion, we need the text that contains t.co URLs
         // Also decode HTML entities in the expansion text
-        let decoded_expansion_text = decode_html_entities(&self.tweet.text);
+        let decoded_expansion_text = decode_html_entities(&self.enriched_tweet.data.text);
         let text_for_expansion = decoded_expansion_text.as_str();
 
         // Expand URLs in the text
-        let (expanded_text, mut used_media_urls) = expand_urls_in_text(
+        let (expanded_text, used_media_urls) = expand_urls_in_text(
             text_for_expansion,
-            self.tweet.entities.as_ref(),
-            &tweet_media_urls,
-            self.tweet,
+            self.enriched_tweet.data.entities.as_ref(),
+            tweet_media_urls,
+            &self.enriched_tweet.data,
         );
 
         // If we have a note_tweet, we need to merge the expanded URLs into the full text
@@ -147,12 +192,8 @@ impl TweetFormatter<'_> {
             expanded_text
         };
 
-        // Combine with any external media URLs passed in
-        for url in self.media_urls {
-            if !used_media_urls.contains(url) && !tweet_media_urls.contains(url) {
-                used_media_urls.push(url.clone());
-            }
-        }
+        // All media URLs are already included in the enriched tweet
+        // No need for additional external media URLs since they're guaranteed to be extracted
 
         FormattedContent {
             text: final_text,
@@ -1057,9 +1098,10 @@ fn format_reply_tweet_with_mentions(
                 format!("@{}", ref_data.author.username)
             };
 
+        // Create enriched tweet with guaranteed media URL extraction
+        let enriched_tweet = EnrichedTweet::from((**ref_data).clone());
         let mut formatter = TweetFormatter {
-            tweet: ref_data,
-            media_urls: &[],
+            enriched_tweet: &enriched_tweet,
             resolver,
         };
         let formatted = formatter.process_content_with_mentions()?;
@@ -1077,8 +1119,7 @@ fn format_reply_tweet_with_mentions(
         content.push('\n');
 
         // Add any unused media URLs
-        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
-        for url in &tweet_media_urls {
+        for url in &enriched_tweet.media_urls {
             if !formatted.used_media_urls.contains(url) {
                 content.push_str(&format!("{url}\n"));
             }
@@ -1106,9 +1147,10 @@ fn format_reply_tweet(
     if let Some(ref_data) = &ref_tweet.data {
         // Legacy formatter without mention resolution
         let mut dummy_resolver = NostrLinkResolver::new(None, None);
+        // Create enriched tweet with guaranteed media URL extraction
+        let enriched_tweet = EnrichedTweet::from((**ref_data).clone());
         let formatter = TweetFormatter {
-            tweet: ref_data,
-            media_urls: &[],
+            enriched_tweet: &enriched_tweet,
             resolver: &mut dummy_resolver,
         };
         let formatted = formatter.process_content();
@@ -1124,8 +1166,7 @@ fn format_reply_tweet(
         content.push('\n');
 
         // Add any unused media URLs
-        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
-        for url in &tweet_media_urls {
+        for url in &enriched_tweet.media_urls {
             if !formatted.used_media_urls.contains(url) {
                 content.push_str(&format!("{url}\n"));
             }
@@ -1167,9 +1208,10 @@ fn format_quote_tweet_with_mentions(
                 format!("@{}", ref_data.author.username)
             };
 
+        // Create enriched tweet with guaranteed media URL extraction
+        let enriched_tweet = EnrichedTweet::from((**ref_data).clone());
         let mut formatter = TweetFormatter {
-            tweet: ref_data,
-            media_urls: &[],
+            enriched_tweet: &enriched_tweet,
             resolver,
         };
         let formatted = formatter.process_content_with_mentions()?;
@@ -1187,8 +1229,7 @@ fn format_quote_tweet_with_mentions(
         content.push('\n');
 
         // Add any unused media URLs
-        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
-        for url in &tweet_media_urls {
+        for url in &enriched_tweet.media_urls {
             if !formatted.used_media_urls.contains(url) {
                 content.push_str(&format!("{url}\n"));
             }
@@ -1216,9 +1257,10 @@ fn format_quote_tweet(
     if let Some(ref_data) = &ref_tweet.data {
         // Legacy formatter without mention resolution
         let mut dummy_resolver = NostrLinkResolver::new(None, None);
+        // Create enriched tweet with guaranteed media URL extraction
+        let enriched_tweet = EnrichedTweet::from((**ref_data).clone());
         let formatter = TweetFormatter {
-            tweet: ref_data,
-            media_urls: &[],
+            enriched_tweet: &enriched_tweet,
             resolver: &mut dummy_resolver,
         };
         let formatted = formatter.process_content();
@@ -1234,8 +1276,7 @@ fn format_quote_tweet(
         content.push('\n');
 
         // Add any unused media URLs
-        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
-        for url in &tweet_media_urls {
+        for url in &enriched_tweet.media_urls {
             if !formatted.used_media_urls.contains(url) {
                 content.push_str(&format!("{url}\n"));
             }
@@ -1307,9 +1348,10 @@ fn format_retweet_with_mentions(
         content.push_str(&prefix);
 
         // Process the retweeted content
+        // Create enriched tweet with guaranteed media URL extraction
+        let enriched_tweet = EnrichedTweet::from((**ref_data).clone());
         let mut formatter = TweetFormatter {
-            tweet: ref_data,
-            media_urls: &[],
+            enriched_tweet: &enriched_tweet,
             resolver,
         };
         let formatted = formatter.process_content_with_mentions()?;
@@ -1321,8 +1363,7 @@ fn format_retweet_with_mentions(
 
         // For non-note_tweet cases, add unused media URLs
         if ref_data.note_tweet.is_none() {
-            let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
-            for url in &tweet_media_urls {
+            for url in &enriched_tweet.media_urls {
                 if !formatted.used_media_urls.contains(url) {
                     content.push_str(&format!("{url}\n"));
                 }
@@ -1390,13 +1431,13 @@ fn format_retweet(
 
         // Process the retweeted content
         // Extract media URLs first so they can be used for URL expansion
-        let tweet_media_urls = crate::media::extract_media_urls_from_tweet(ref_data);
+        // Create enriched tweet with guaranteed media URL extraction
+        let enriched_tweet = EnrichedTweet::from((**ref_data).clone());
 
         // Legacy formatter without mention resolution
         let mut dummy_resolver = NostrLinkResolver::new(None, None);
         let formatter = TweetFormatter {
-            tweet: ref_data,
-            media_urls: &tweet_media_urls, // Pass the media URLs for proper expansion
+            enriched_tweet: &enriched_tweet, // Pass the media URLs for proper expansion
             resolver: &mut dummy_resolver,
         };
         let formatted = formatter.process_content();
@@ -1407,7 +1448,7 @@ fn format_retweet(
 
         // For non-note_tweet cases, add unused media URLs
         if ref_data.note_tweet.is_none() {
-            for url in &tweet_media_urls {
+            for url in &enriched_tweet.media_urls {
                 if !formatted.used_media_urls.contains(url) {
                     content.push_str(&format!("{url}\n"));
                 }
@@ -1523,9 +1564,10 @@ fn add_referenced_tweets(
                     ));
                     // Legacy formatter without mention resolution
                     let mut dummy_resolver = NostrLinkResolver::new(None, None);
+                    // Create enriched tweet with guaranteed media URL extraction
+                    let enriched_tweet = EnrichedTweet::from((**ref_data).clone());
                     let formatter = TweetFormatter {
-                        tweet: ref_data,
-                        media_urls: &[],
+                        enriched_tweet: &enriched_tweet,
                         resolver: &mut dummy_resolver,
                     };
                     let formatted = formatter.process_content();

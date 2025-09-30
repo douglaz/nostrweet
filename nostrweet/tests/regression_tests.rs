@@ -887,6 +887,46 @@ fn test_format_retweet_with_full_content() {
 }
 
 #[test]
+fn test_daemon_retweet_formatting_with_mentions() {
+    use nostrweet::nostr::format_tweet_as_nostr_content_with_mentions;
+    use nostrweet::nostr_linking::NostrLinkResolver;
+
+    const TEST_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    // Regression test: ensure daemon's retweet formatting (which uses format_retweet_with_mentions)
+    // properly extracts media URLs and doesn't show t.co URLs
+    let tweet = fixtures::retweet_with_full_content();
+    let mut resolver = NostrLinkResolver::new(None, Some(TEST_MNEMONIC.to_string()));
+
+    let result = format_tweet_as_nostr_content_with_mentions(&tweet, &[], &mut resolver);
+    if let Err(e) = &result {
+        panic!("Daemon formatting failed: {e}");
+    }
+
+    let (content, _mentioned_pubkeys) = result.unwrap();
+
+    // Should be formatted as a retweet with daemon's Nostr-aware format
+    // The daemon resolves usernames to Nostr pubkeys when possible
+    assert!(content.contains("🔁 @douglaz retweeted nostr:npub"));
+
+    // Should contain the full text of the retweeted content
+    assert!(
+        content.contains("Quando falo isso o povo me chama de radical"),
+        "Daemon retweet should contain the full text content, not just URLs"
+    );
+
+    // Critical regression test: daemon should not show t.co URLs
+    assert!(
+        !content.contains("https://t.co/sxDlqKciKK"),
+        "Daemon should expand t.co URLs, not show them as-is"
+    );
+    assert!(
+        content.contains("video.twimg.com"),
+        "Daemon should show expanded video URL inline in the text"
+    );
+}
+
+#[test]
 fn test_format_reply_nostr() {
     let tweet = fixtures::reply_tweet();
     let content = format_tweet_as_nostr_content(&tweet, &[]);
