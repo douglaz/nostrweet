@@ -1158,9 +1158,11 @@ async fn test_show_tweet_output_separation() {
     std::fs::write(&tweet_path, tweet_json).expect("Failed to write test tweet");
 
     // Run the show-tweet command and capture both stdout and stderr
+    // Using cargo run with --quiet to suppress compilation output
     let output = Command::new("cargo")
         .args([
             "run",
+            "--quiet",
             "--",
             "show-tweet",
             "1929266300380967406",
@@ -1217,12 +1219,16 @@ async fn test_show_tweet_output_separation() {
 
     // Check stderr contains logging messages (convert to string for analysis)
     let stderr_str = String::from_utf8(output.stderr).expect("Invalid UTF-8 in stderr");
+
     assert!(
         stderr_str.contains("Showing tweet"),
         "stderr should contain log messages"
     );
+    // Accept any of these messages that indicate the tweet was found/loaded
     assert!(
-        stderr_str.contains("Found cached tweet") || stderr_str.contains("Tweet not in cache"),
+        stderr_str.contains("Found existing tweet data")
+            || stderr_str.contains("not found locally")
+            || stderr_str.contains("Loaded tweet data from local file"),
         "stderr should contain processing messages"
     );
 }
