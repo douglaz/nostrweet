@@ -1309,7 +1309,7 @@ pub async fn update_relay_list(client: &Client, keys: &Keys, relays: &[String]) 
     Ok(())
 }
 
-/// Legacy functions for backward compatibility with tests
+//===== Legacy functions for backward compatibility with tests =====
 
 /// Add the main tweet content (legacy version)
 /// Returns the list of media URLs that were used inline
