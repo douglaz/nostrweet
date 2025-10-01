@@ -117,8 +117,8 @@ impl RateLimiter {
         }
 
         // If at limit, wait
-        if self.request_times.len() >= self.requests_per_window as usize {
-            if let Some(&oldest) = self.request_times.front() {
+        if self.request_times.len() >= self.requests_per_window as usize
+            && let Some(&oldest) = self.request_times.front() {
                 let wait_until = oldest + self.window_duration;
                 let wait_duration = wait_until.saturating_duration_since(Instant::now());
                 if wait_duration > Duration::ZERO {
@@ -126,7 +126,6 @@ impl RateLimiter {
                     time::sleep(wait_duration).await;
                 }
             }
-        }
 
         // Record this request
         self.request_times.push_back(Instant::now());

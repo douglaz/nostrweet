@@ -182,31 +182,27 @@ pub async fn execute_with_options(
         };
 
         // Apply date filters
-        if let Some(since_date) = &options.since_date {
-            if let (Ok(since), Ok(tweet_date)) = (
+        if let Some(since_date) = &options.since_date
+            && let (Ok(since), Ok(tweet_date)) = (
                 chrono::DateTime::parse_from_rfc3339(since_date),
                 chrono::DateTime::parse_from_rfc3339(&tweet.created_at),
-            ) {
-                if tweet_date < since {
+            )
+                && tweet_date < since {
                     debug!("Skipping tweet {tweet_id}: before since_date");
                     skip_count += 1;
                     continue;
                 }
-            }
-        }
 
-        if let Some(until_date) = &options.until_date {
-            if let (Ok(until), Ok(tweet_date)) = (
+        if let Some(until_date) = &options.until_date
+            && let (Ok(until), Ok(tweet_date)) = (
                 chrono::DateTime::parse_from_rfc3339(until_date),
                 chrono::DateTime::parse_from_rfc3339(&tweet.created_at),
-            ) {
-                if tweet_date > until {
+            )
+                && tweet_date > until {
                     debug!("Skipping tweet {tweet_id}: after until_date");
                     skip_count += 1;
                     continue;
                 }
-            }
-        }
 
         // Apply keyword filters
         if let Some(filter_keywords) = &options.filter_keywords {

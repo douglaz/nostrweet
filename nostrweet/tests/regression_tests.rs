@@ -11,51 +11,56 @@ fn format_tweet_as_nostr_content(tweet: &Tweet, media_urls: &[String]) -> String
     let mut content = String::new();
 
     // Check if this is a retweet
-    if let Some(ref_tweets) = &tweet.referenced_tweets {
-        if let Some(retweet) = ref_tweets.iter().find(|rt| rt.type_field == "retweeted") {
-            if let Some(rt_data) = &retweet.data {
-                content.push_str(&format!("🔁 @{} retweeted @{}:",
-                    tweet.author.username, rt_data.author.username));
+    if let Some(ref_tweets) = &tweet.referenced_tweets
+        && let Some(retweet) = ref_tweets.iter().find(|rt| rt.type_field == "retweeted")
+            && let Some(rt_data) = &retweet.data {
+                content.push_str(&format!(
+                    "🔁 @{} retweeted @{}:",
+                    tweet.author.username, rt_data.author.username
+                ));
                 content.push('\n');
                 content.push_str(&rt_data.text);
                 content.push('\n');
                 content.push_str(&format!("https://twitter.com/i/status/{}", retweet.id));
-                content.push_str(&format!("\n\nOriginal tweet: https://twitter.com/i/status/{}", tweet.id));
+                content.push_str(&format!(
+                    "\n\nOriginal tweet: https://twitter.com/i/status/{}",
+                    tweet.id
+                ));
                 return content;
             }
-        }
-    }
 
     // Check if this is a reply
-    if let Some(ref_tweets) = &tweet.referenced_tweets {
-        if let Some(reply) = ref_tweets.iter().find(|rt| rt.type_field == "replied_to") {
-            if let Some(reply_data) = &reply.data {
+    if let Some(ref_tweets) = &tweet.referenced_tweets
+        && let Some(reply) = ref_tweets.iter().find(|rt| rt.type_field == "replied_to")
+            && let Some(reply_data) = &reply.data {
                 content.push_str(&format!("🐦 @{}: ", tweet.author.username));
                 content.push_str(&tweet.text);
                 content.push_str(&format!("\n\n↩️ Reply to @{}:", reply_data.author.username));
                 content.push('\n');
                 content.push_str(&reply_data.text);
-                content.push_str(&format!("\n\nOriginal tweet: https://twitter.com/i/status/{}", tweet.id));
+                content.push_str(&format!(
+                    "\n\nOriginal tweet: https://twitter.com/i/status/{}",
+                    tweet.id
+                ));
                 return content;
             }
-        }
-    }
 
     // Check if this is a quote tweet
-    if let Some(ref_tweets) = &tweet.referenced_tweets {
-        if let Some(quote) = ref_tweets.iter().find(|rt| rt.type_field == "quoted") {
-            if let Some(quote_data) = &quote.data {
+    if let Some(ref_tweets) = &tweet.referenced_tweets
+        && let Some(quote) = ref_tweets.iter().find(|rt| rt.type_field == "quoted")
+            && let Some(quote_data) = &quote.data {
                 content.push_str(&format!("🐦 @{}: ", tweet.author.username));
                 content.push_str(&tweet.text);
                 content.push_str(&format!("\n\n💬 Quote of @{}:", quote_data.author.username));
                 content.push('\n');
                 content.push_str(&quote_data.text);
                 content.push_str(&format!("\nhttps://twitter.com/i/status/{}", quote.id));
-                content.push_str(&format!("\n\nOriginal tweet: https://twitter.com/i/status/{}", tweet.id));
+                content.push_str(&format!(
+                    "\n\nOriginal tweet: https://twitter.com/i/status/{}",
+                    tweet.id
+                ));
                 return content;
             }
-        }
-    }
 
     // Check for note tweet (long form content)
     let tweet_text = if let Some(ref note) = tweet.note_tweet {
@@ -77,16 +82,17 @@ fn format_tweet_as_nostr_content(tweet: &Tweet, media_urls: &[String]) -> String
 
     // Regular tweet - expand URLs if entities exist
     let mut expanded_text = tweet_text.clone();
-    if let Some(entities) = &tweet.entities {
-        if let Some(urls) = &entities.urls {
+    if let Some(entities) = &tweet.entities
+        && let Some(urls) = &entities.urls {
             for url_entity in urls {
                 if let Some(expanded) = &url_entity.expanded_url {
-                    expanded_text = expanded_text.replace(&url_entity.url,
-                        &format!("[{}]({})", url_entity.display_url, expanded));
+                    expanded_text = expanded_text.replace(
+                        &url_entity.url,
+                        &format!("[{}]({})", url_entity.display_url, expanded),
+                    );
                 }
             }
         }
-    }
 
     // Basic tweet format
     content.push_str(&format!("🐦 @{}: ", username));

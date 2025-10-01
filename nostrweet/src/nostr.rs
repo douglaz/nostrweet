@@ -555,8 +555,8 @@ fn expand_urls_in_text(
     let mut result = text.to_string();
     let mut used_media_urls = Vec::new();
 
-    if let Some(entities) = entities {
-        if let Some(urls) = &entities.urls {
+    if let Some(entities) = entities
+        && let Some(urls) = &entities.urls {
             // Process URLs in reverse order by length to handle overlapping replacements
             let mut sorted_urls: Vec<_> = urls.iter().collect();
             sorted_urls.sort_by(|a, b| b.url.len().cmp(&a.url.len()));
@@ -608,7 +608,6 @@ fn expand_urls_in_text(
                 }
             }
         }
-    }
 
     (result, used_media_urls)
 }
@@ -626,8 +625,8 @@ fn find_media_url_for_shortened_url(
     }
 
     // First, try to match using URL entities
-    if let Some(entities) = &tweet.entities {
-        if let Some(urls) = &entities.urls {
+    if let Some(entities) = &tweet.entities
+        && let Some(urls) = &entities.urls {
             for url_entity in urls {
                 if url_entity.url == shortened_url {
                     // This is the matching t.co URL
@@ -645,7 +644,6 @@ fn find_media_url_for_shortened_url(
                 }
             }
         }
-    }
 
     // Fallback: if we have exactly one media URL and this looks like a media t.co URL,
     // assume they correspond
@@ -667,8 +665,8 @@ fn process_mentions_in_text(
     let mut mentioned_pubkeys = Vec::new();
     let mut processed_usernames = std::collections::HashSet::new();
 
-    if let Some(entities) = entities {
-        if let Some(mentions) = &entities.mentions {
+    if let Some(entities) = entities
+        && let Some(mentions) = &entities.mentions {
             // Process each mention
             for mention in mentions {
                 let username = &mention.username;
@@ -709,7 +707,6 @@ fn process_mentions_in_text(
                 }
             }
         }
-    }
 
     // Also try to process any @mentions that weren't captured in entities
     // This handles edge cases where Twitter's entity extraction might miss some mentions

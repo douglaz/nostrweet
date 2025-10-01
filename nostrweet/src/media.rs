@@ -32,8 +32,8 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
         }
 
         // Handle videos and GIFs (URLs in variants)
-        if media.type_field == "video" || media.type_field == "animated_gif" {
-            if let Some(variants) = &media.variants {
+        if (media.type_field == "video" || media.type_field == "animated_gif")
+            && let Some(variants) = &media.variants {
                 // Find the variant with the highest bitrate (highest quality)
                 return variants
                     .iter()
@@ -41,7 +41,6 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
                     .max_by_key(|&(br, _)| br)
                     .map(|(_, url)| url.clone());
             }
-        }
 
         // Fallback to preview image if available
         media.preview_image_url.clone()
@@ -53,8 +52,8 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
     ) -> Vec<String> {
         let mut video_urls = Vec::new();
 
-        if let Some(entities) = entities {
-            if let Some(urls) = &entities.urls {
+        if let Some(entities) = entities
+            && let Some(urls) = &entities.urls {
                 for url_entity in urls {
                     // Get expanded URL or fall back to original
                     let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
@@ -68,21 +67,19 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
                     }
                 }
             }
-        }
 
         video_urls
     }
 
     // Extract media from the main tweet
-    if let Some(includes) = &tweet.includes {
-        if let Some(media_items) = &includes.media {
+    if let Some(includes) = &tweet.includes
+        && let Some(media_items) = &includes.media {
             for media in media_items {
                 if let Some(url) = process_media_item(media) {
                     media_urls.push(url);
                 }
             }
         }
-    }
 
     // If we have no media URLs found via includes.media, try to extract from entities.urls
     if media_urls.is_empty() {
@@ -101,8 +98,8 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
         }
     } else {
         // Even if we have some media, check if any entity URLs indicate video content that we might need to fetch
-        if let Some(entities) = &tweet.entities {
-            if let Some(urls) = &entities.urls {
+        if let Some(entities) = &tweet.entities
+            && let Some(urls) = &entities.urls {
                 for url_entity in urls {
                     let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
                     if expanded_url.contains("video")
@@ -114,7 +111,6 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
                     }
                 }
             }
-        }
     }
 
     // Remove duplicates
@@ -133,8 +129,8 @@ pub async fn download_media(
     let client = create_http_client_with_context()?;
 
     // Process media from the main tweet
-    if let Some(includes) = &tweet.includes {
-        if let Some(media_items) = &includes.media {
+    if let Some(includes) = &tweet.includes
+        && let Some(media_items) = &includes.media {
             for media in media_items.iter() {
                 match download_media_item(&client, media, tweet, data_dir, bearer_token).await {
                     Ok(result) => media_files.push(result),
@@ -152,7 +148,6 @@ pub async fn download_media(
                 }
             }
         }
-    }
 
     // Process media from all referenced tweets (retweets, quotes, replies)
     if let Some(referenced_tweets) = &tweet.referenced_tweets {
@@ -165,8 +160,8 @@ pub async fn download_media(
                     original_tweet.id
                 );
 
-                if let Some(includes) = &original_tweet.includes {
-                    if let Some(media_items) = &includes.media {
+                if let Some(includes) = &original_tweet.includes
+                    && let Some(media_items) = &includes.media {
                         for media_item in media_items.iter() {
                             match download_media_item(
                                 &client,
@@ -189,7 +184,6 @@ pub async fn download_media(
                             }
                         }
                     }
-                }
             }
         }
     }
@@ -479,8 +473,8 @@ async fn download_media_item(
     let req_builder = build_media_request(client, download_url, &media.type_field, bearer_token)?;
 
     // Debug: log the prepared request headers to diagnose 403
-    if let Some(rb) = req_builder.try_clone() {
-        if let Ok(request) = rb.build() {
+    if let Some(rb) = req_builder.try_clone()
+        && let Ok(request) = rb.build() {
             debug!(
                 "Media download request: {} {}",
                 request.method(),
@@ -490,7 +484,6 @@ async fn download_media_item(
                 debug!("Header {name}: {value:?}");
             }
         }
-    }
 
     let response = req_builder
         .send()

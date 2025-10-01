@@ -244,11 +244,10 @@ pub async fn run_all_tests(
     }
 
     // Stop shared relay if it was started
-    if let Some(mut r) = relay {
-        if !keep_relay {
+    if let Some(mut r) = relay
+        && !keep_relay {
             r.stop().await.ok();
         }
-    }
 
     // Print summary
     info!("\n=== Test Summary ===");
@@ -382,15 +381,13 @@ fn find_nostrweet_binary() -> Result<PathBuf> {
     if let Ok(output) = std::process::Command::new("which")
         .arg("nostrweet")
         .output()
-    {
-        if output.status.success() {
+        && output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
                 info!("Found nostrweet in PATH: {path}");
                 return Ok(PathBuf::from(path));
             }
         }
-    }
 
     bail!("Could not find nostrweet binary. Please build it first with 'cargo build'");
 }
