@@ -99,7 +99,7 @@ fn format_tweet_as_nostr_content(tweet: &Tweet, media_urls: &[String]) -> String
     }
 
     // Basic tweet format
-    content.push_str(&format!("🐦 @{}: ", username));
+    content.push_str(&format!("🐦 @{username}: "));
     content.push_str(&expanded_text);
     content.push_str("\n\n");
 
