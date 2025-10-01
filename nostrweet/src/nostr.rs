@@ -1292,9 +1292,7 @@ mod tests {
     use crate::twitter::{Entities, ReferencedTweet, Tweet, UrlEntity, User};
     use pretty_assertions::assert_eq;
 
-
     const TEST_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-
 
     fn create_test_tweet_with_mentions() -> Tweet {
         Tweet {
@@ -1489,13 +1487,6 @@ mod tests {
 
         Ok(())
     }
-
-
-
-
-
-
-
 
     #[test]
     fn test_expand_urls_in_text() {
