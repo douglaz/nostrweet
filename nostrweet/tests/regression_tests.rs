@@ -10,11 +10,87 @@ fn format_tweet_as_nostr_content(tweet: &Tweet, media_urls: &[String]) -> String
     // Real applications should use format_tweet_as_nostr_content_with_mentions
     let mut content = String::new();
 
-    // Add basic author info
-    content.push_str(&format!("🐦 @{}: ", tweet.author.username));
+    // Check if this is a retweet
+    if let Some(ref_tweets) = &tweet.referenced_tweets {
+        if let Some(retweet) = ref_tweets.iter().find(|rt| rt.type_field == "retweeted") {
+            if let Some(rt_data) = &retweet.data {
+                content.push_str(&format!("🔁 @{} retweeted @{}:",
+                    tweet.author.username, rt_data.author.username));
+                content.push('\n');
+                content.push_str(&rt_data.text);
+                content.push('\n');
+                content.push_str(&format!("https://twitter.com/i/status/{}", retweet.id));
+                content.push_str(&format!("\n\nOriginal tweet: https://twitter.com/i/status/{}", tweet.id));
+                return content;
+            }
+        }
+    }
 
-    // Add tweet text
-    content.push_str(&tweet.text);
+    // Check if this is a reply
+    if let Some(ref_tweets) = &tweet.referenced_tweets {
+        if let Some(reply) = ref_tweets.iter().find(|rt| rt.type_field == "replied_to") {
+            if let Some(reply_data) = &reply.data {
+                content.push_str(&format!("🐦 @{}: ", tweet.author.username));
+                content.push_str(&tweet.text);
+                content.push_str(&format!("\n\n↩️ Reply to @{}:", reply_data.author.username));
+                content.push('\n');
+                content.push_str(&reply_data.text);
+                content.push_str(&format!("\n\nOriginal tweet: https://twitter.com/i/status/{}", tweet.id));
+                return content;
+            }
+        }
+    }
+
+    // Check if this is a quote tweet
+    if let Some(ref_tweets) = &tweet.referenced_tweets {
+        if let Some(quote) = ref_tweets.iter().find(|rt| rt.type_field == "quoted") {
+            if let Some(quote_data) = &quote.data {
+                content.push_str(&format!("🐦 @{}: ", tweet.author.username));
+                content.push_str(&tweet.text);
+                content.push_str(&format!("\n\n💬 Quote of @{}:", quote_data.author.username));
+                content.push('\n');
+                content.push_str(&quote_data.text);
+                content.push_str(&format!("\nhttps://twitter.com/i/status/{}", quote.id));
+                content.push_str(&format!("\n\nOriginal tweet: https://twitter.com/i/status/{}", tweet.id));
+                return content;
+            }
+        }
+    }
+
+    // Check for note tweet (long form content)
+    let tweet_text = if let Some(ref note) = tweet.note_tweet {
+        &note.text
+    } else {
+        &tweet.text
+    };
+
+    // Handle missing author info
+    let username = if tweet.author.username.is_empty() {
+        if tweet.author.id.is_empty() {
+            "Tweet".to_string()
+        } else {
+            format!("User {}", tweet.author.id)
+        }
+    } else {
+        tweet.author.username.clone()
+    };
+
+    // Regular tweet - expand URLs if entities exist
+    let mut expanded_text = tweet_text.clone();
+    if let Some(entities) = &tweet.entities {
+        if let Some(urls) = &entities.urls {
+            for url_entity in urls {
+                if let Some(expanded) = &url_entity.expanded_url {
+                    expanded_text = expanded_text.replace(&url_entity.url,
+                        &format!("[{}]({})", url_entity.display_url, expanded));
+                }
+            }
+        }
+    }
+
+    // Basic tweet format
+    content.push_str(&format!("🐦 @{}: ", username));
+    content.push_str(&expanded_text);
     content.push_str("\n\n");
 
     // Add media URLs
@@ -1323,6 +1399,8 @@ async fn test_show_tweet_output_separation() {
             "1929266300380967406",
             "--data-dir",
             temp_dir.path().to_str().unwrap(),
+            "--mnemonic",
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
         ])
         .output()
         .expect("Failed to execute command");
@@ -1413,6 +1491,8 @@ async fn test_show_tweet_stdout_is_pure_json() {
             "1645195402788892674",
             "--data-dir",
             temp_dir.path().to_str().unwrap(),
+            "--mnemonic",
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
         ])
         .output()
         .expect("Failed to execute command");
@@ -1489,6 +1569,8 @@ async fn test_show_tweet_pretty_formatting() {
             "--data-dir",
             temp_dir.path().to_str().unwrap(),
             "--pretty",
+            "--mnemonic",
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
         ])
         .output()
         .expect("Failed to execute command");
@@ -1516,6 +1598,8 @@ async fn test_show_tweet_pretty_formatting() {
             "--data-dir",
             temp_dir.path().to_str().unwrap(),
             "--compact",
+            "--mnemonic",
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
         ])
         .output()
         .expect("Failed to execute command");
@@ -1713,6 +1797,8 @@ async fn test_show_tweet_with_image_media() {
             "1947427270152626319",
             "--data-dir",
             temp_dir.path().to_str().unwrap(),
+            "--mnemonic",
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
         ])
         .output()
         .expect("Failed to execute command");
@@ -1873,6 +1959,8 @@ async fn test_show_tweet_with_referenced_tweet_media() {
             "1946563939120169182",
             "--data-dir",
             temp_dir.path().to_str().unwrap(),
+            "--mnemonic",
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
         ])
         .output()
         .expect("Failed to execute command");
