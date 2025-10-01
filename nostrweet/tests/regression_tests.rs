@@ -20,7 +20,54 @@ fn format_tweet_as_nostr_content(tweet: &Tweet, media_urls: &[String]) -> String
             tweet.author.username, rt_data.author.username
         ));
         content.push('\n');
-        content.push_str(&rt_data.text);
+
+        // Expand URLs in retweeted content if entities exist
+        let mut expanded_rt_text = rt_data.text.clone();
+        if let Some(entities) = &rt_data.entities
+            && let Some(urls) = &entities.urls
+        {
+            for url_entity in urls {
+                if let Some(expanded) = &url_entity.expanded_url {
+                    // Check if this is a video/media URL and we have actual media URLs available
+                    let actual_url = if expanded.contains("/video/")
+                        || expanded.contains("pic.x.com")
+                        || expanded.contains("pic.twitter.com")
+                    {
+                        // Try to find the actual media URL from includes.media
+                        if let Some(includes) = &rt_data.includes
+                            && let Some(media) = &includes.media
+                            && !media.is_empty()
+                        {
+                            // For video, use the first variant URL if available
+                            if let Some(first_media) = media.first() {
+                                if first_media.type_field == "video" {
+                                    if let Some(variants) = &first_media.variants
+                                        && !variants.is_empty()
+                                    {
+                                        variants[0].url.clone()
+                                    } else {
+                                        expanded.clone()
+                                    }
+                                } else {
+                                    // For images, use the URL directly
+                                    first_media.url.as_ref().unwrap_or(expanded).clone()
+                                }
+                            } else {
+                                expanded.clone()
+                            }
+                        } else {
+                            expanded.clone()
+                        }
+                    } else {
+                        expanded.clone()
+                    };
+
+                    expanded_rt_text = expanded_rt_text.replace(&url_entity.url, &actual_url);
+                }
+            }
+        }
+
+        content.push_str(&expanded_rt_text);
         content.push('\n');
         content.push_str(&format!("https://twitter.com/i/status/{}", retweet.id));
         content.push_str(&format!(
@@ -74,10 +121,17 @@ fn format_tweet_as_nostr_content(tweet: &Tweet, media_urls: &[String]) -> String
 
     // Handle missing author info
     let username = if tweet.author.username.is_empty() {
-        if tweet.author.id.is_empty() {
-            "Tweet".to_string()
-        } else {
+        // Try author.id first, then author_id as fallback
+        if !tweet.author.id.is_empty() {
             format!("User {}", tweet.author.id)
+        } else if let Some(author_id) = &tweet.author_id {
+            if !author_id.is_empty() {
+                format!("User {author_id}")
+            } else {
+                "Tweet".to_string()
+            }
+        } else {
+            "Tweet".to_string()
         }
     } else {
         tweet.author.username.clone()
@@ -99,7 +153,11 @@ fn format_tweet_as_nostr_content(tweet: &Tweet, media_urls: &[String]) -> String
     }
 
     // Basic tweet format
-    content.push_str(&format!("🐦 @{username}: "));
+    if username.starts_with("User ") || username == "Tweet" {
+        content.push_str(&format!("🐦 {username}: "));
+    } else {
+        content.push_str(&format!("🐦 @{username}: "));
+    }
     content.push_str(&expanded_text);
     content.push_str("\n\n");
 
@@ -1112,6 +1170,7 @@ fn test_empty_username() {
 fn test_missing_author_id() {
     let mut tweet = fixtures::simple_tweet();
     tweet.author.username = String::new();
+    tweet.author.id = String::new(); // Clear this too
     tweet.author_id = None;
     let content = format_tweet_as_nostr_content(&tweet, &[]);
 
