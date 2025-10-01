@@ -1,7 +1,5 @@
 use nostr_sdk::{EventBuilder, Keys, Kind, Tag, Timestamp};
 use nostrweet::media::extract_media_urls_from_tweet;
-use nostrweet::nostr::format_tweet_as_nostr_content_with_mentions;
-use nostrweet::nostr_linking::NostrLinkResolver;
 use nostrweet::twitter::Tweet;
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
