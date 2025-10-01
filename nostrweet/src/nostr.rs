@@ -829,6 +829,29 @@ pub fn format_tweet_as_nostr_content_with_mentions(
     Ok((content, all_mentioned_pubkeys))
 }
 
+/// Format a tweet as Nostr content (legacy version without mention resolution)
+/// This function is kept for backward compatibility with tests
+pub fn format_tweet_as_nostr_content(
+    tweet: &crate::twitter::Tweet,
+    media_urls: &[String],
+) -> String {
+    let mut content = String::new();
+
+    let (is_simple_retweet, rt_username) = analyze_retweet(tweet);
+
+    add_author_info(&mut content, tweet, is_simple_retweet);
+    let used_media_urls =
+        add_tweet_content_legacy(&mut content, tweet, is_simple_retweet, media_urls);
+    add_referenced_tweets_legacy(&mut content, tweet, is_simple_retweet, &rt_username);
+    // For simple retweets, don't add media URLs since they belong to the retweeted content
+    if !is_simple_retweet {
+        add_media_urls(&mut content, media_urls, &used_media_urls);
+    }
+    add_original_tweet_url(&mut content, &tweet.id);
+
+    content
+}
+
 /// Check if a tweet is a simple retweet and extract username if possible
 fn analyze_retweet(tweet: &crate::twitter::Tweet) -> (bool, Option<String>) {
     let Some(ref_tweets) = &tweet.referenced_tweets else {
@@ -1284,6 +1307,227 @@ pub async fn update_relay_list(client: &Client, keys: &Keys, relays: &[String]) 
     info!("Successfully updated Nostr relay list");
 
     Ok(())
+}
+
+/// Legacy functions for backward compatibility with tests
+
+/// Add the main tweet content (legacy version)
+/// Returns the list of media URLs that were used inline
+fn add_tweet_content_legacy(
+    content: &mut String,
+    tweet: &crate::twitter::Tweet,
+    is_simple_retweet: bool,
+    media_urls: &[String],
+) -> Vec<String> {
+    if is_simple_retweet {
+        return Vec::new();
+    }
+
+    // Add tweet text with expanded URLs
+    // Prefer extended text when available
+    let raw_text = if let Some(note) = &tweet.note_tweet {
+        &note.text
+    } else {
+        &tweet.text
+    };
+
+    // Decode HTML entities first
+    let decoded_text = decode_html_entities(raw_text);
+
+    let (expanded_text, used_media_urls) =
+        expand_urls_in_text(&decoded_text, tweet.entities.as_ref(), media_urls, tweet);
+    content.push_str(&expanded_text);
+    content.push_str("\n\n");
+
+    used_media_urls
+}
+
+/// Add referenced tweets (legacy version)
+fn add_referenced_tweets_legacy(
+    content: &mut String,
+    tweet: &crate::twitter::Tweet,
+    is_simple_retweet: bool,
+    rt_username: &Option<String>,
+) {
+    let Some(referenced_tweets) = &tweet.referenced_tweets else {
+        return;
+    };
+
+    for ref_tweet in referenced_tweets {
+        let tweet_url = build_twitter_status_url(&ref_tweet.id);
+
+        match ref_tweet.type_field.as_str() {
+            "replied_to" => format_reply_tweet_legacy(content, ref_tweet, &tweet_url),
+            "quoted" => format_quote_tweet_legacy(content, ref_tweet, &tweet_url),
+            "retweeted" => format_retweet_legacy(
+                content,
+                ref_tweet,
+                &tweet_url,
+                tweet,
+                is_simple_retweet,
+                rt_username,
+            ),
+            _ => {
+                // Generic reference format for unknown types
+                if let Some(ref_data) = &ref_tweet.data {
+                    content.push_str(&format!(
+                        "🔗 Reference to @{username}:\n",
+                        username = ref_data.author.username
+                    ));
+                    // Simple text processing without enrichment
+                    let raw_text = if let Some(note) = &ref_data.note_tweet {
+                        &note.text
+                    } else {
+                        &ref_data.text
+                    };
+                    let decoded_text = decode_html_entities(raw_text);
+                    let (expanded_text, _) = expand_urls_in_text(
+                        &decoded_text,
+                        ref_data.entities.as_ref(),
+                        &[],
+                        ref_data,
+                    );
+                    content.push_str(&expanded_text);
+                    content.push('\n');
+                    content.push_str(&format!("{tweet_url}\n"));
+                } else {
+                    content.push_str(&format!(
+                        "🔗 Reference to Tweet {}\n{tweet_url}\n",
+                        ref_tweet.id
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// Format a reply tweet (legacy version)
+fn format_reply_tweet_legacy(
+    content: &mut String,
+    ref_tweet: &crate::twitter::ReferencedTweet,
+    tweet_url: &str,
+) {
+    if let Some(ref_data) = &ref_tweet.data {
+        // Add reply header
+        content.push_str(&format!(
+            "↩️ Reply to @{username}:\n",
+            username = ref_data.author.username
+        ));
+
+        // Add content
+        let raw_text = if let Some(note) = &ref_data.note_tweet {
+            &note.text
+        } else {
+            &ref_data.text
+        };
+        let decoded_text = decode_html_entities(raw_text);
+        let (expanded_text, _) =
+            expand_urls_in_text(&decoded_text, ref_data.entities.as_ref(), &[], ref_data);
+        content.push_str(&expanded_text);
+        content.push('\n');
+
+        // Add link to original tweet
+        content.push_str(&format!("{tweet_url}\n"));
+    } else {
+        // Fallback: simple link if data not available
+        content.push_str(&format!(
+            "↩️ Reply to Tweet {id}\n{tweet_url}\n",
+            id = ref_tweet.id
+        ));
+    }
+}
+
+/// Format a quoted tweet (legacy version)
+fn format_quote_tweet_legacy(
+    content: &mut String,
+    ref_tweet: &crate::twitter::ReferencedTweet,
+    tweet_url: &str,
+) {
+    if let Some(ref_data) = &ref_tweet.data {
+        // Add quote header
+        content.push_str(&format!(
+            "💬 Quote of @{username}:\n",
+            username = ref_data.author.username
+        ));
+
+        // Add content
+        let raw_text = if let Some(note) = &ref_data.note_tweet {
+            &note.text
+        } else {
+            &ref_data.text
+        };
+        let decoded_text = decode_html_entities(raw_text);
+        let (expanded_text, _) =
+            expand_urls_in_text(&decoded_text, ref_data.entities.as_ref(), &[], ref_data);
+        content.push_str(&expanded_text);
+        content.push('\n');
+
+        // Add link to original tweet
+        content.push_str(&format!("{tweet_url}\n"));
+    } else {
+        // Fallback: simple link if data not available
+        content.push_str(&format!(
+            "💬 Quote of Tweet {id}\n{tweet_url}\n",
+            id = ref_tweet.id
+        ));
+    }
+}
+
+/// Format a retweet (legacy version)
+fn format_retweet_legacy(
+    content: &mut String,
+    ref_tweet: &crate::twitter::ReferencedTweet,
+    tweet_url: &str,
+    tweet: &crate::twitter::Tweet,
+    is_simple_retweet: bool,
+    rt_username: &Option<String>,
+) {
+    if let Some(ref_data) = &ref_tweet.data {
+        // Add retweet header
+        let prefix = if is_simple_retweet {
+            let base = format!("🔁 @{username} retweeted", username = tweet.author.username);
+            match rt_username {
+                Some(username) => format!("{base} @{username}:\n"),
+                None => format!("{base}:\n"),
+            }
+        } else {
+            format!(
+                "🔄 Retweet of @{username}:\n",
+                username = ref_data.author.username
+            )
+        };
+        content.push_str(&prefix);
+
+        // Process the retweeted content
+        let raw_text = if let Some(note) = &ref_data.note_tweet {
+            &note.text
+        } else {
+            &ref_data.text
+        };
+        let decoded_text = decode_html_entities(raw_text);
+        let (expanded_text, _) =
+            expand_urls_in_text(&decoded_text, ref_data.entities.as_ref(), &[], ref_data);
+        content.push_str(&expanded_text);
+        content.push('\n');
+
+        // Add link to original tweet
+        content.push_str(&format!("{tweet_url}\n"));
+    } else {
+        // Fallback for simple retweets without data
+        if is_simple_retweet && rt_username.is_some() {
+            if let Some(username) = rt_username {
+                content.push_str(&format!(
+                    "🔁 @{} retweeted @{username}:\n{tweet_url}\n",
+                    tweet.author.username
+                ));
+            }
+        } else {
+            content.push_str(&format!(
+                "🔄 Retweet of Tweet {id}\n{tweet_url}\n",
+                id = ref_tweet.id
+            ));
+        }
+    }
 }
 
 #[cfg(test)]
