@@ -90,9 +90,10 @@ pub async fn execute(
             debug!("Adding missing author information for tweet {tweet_id}");
             tweet_to_save.author.username = username.to_string();
             if tweet_to_save.author.id.is_empty()
-                && let Some(author_id) = &tweet_to_save.author_id {
-                    tweet_to_save.author.id = author_id.clone();
-                }
+                && let Some(author_id) = &tweet_to_save.author_id
+            {
+                tweet_to_save.author.id = author_id.clone();
+            }
         }
 
         // Enrich referenced tweets using the centralized helper

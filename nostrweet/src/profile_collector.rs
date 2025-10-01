@@ -16,11 +16,12 @@ pub fn collect_usernames_from_tweet(tweet: &Tweet) -> HashSet<String> {
 
     // Add mentioned users
     if let Some(entities) = &tweet.entities
-        && let Some(mentions) = &entities.mentions {
-            for mention in mentions {
-                usernames.insert(mention.username.clone());
-            }
+        && let Some(mentions) = &entities.mentions
+    {
+        for mention in mentions {
+            usernames.insert(mention.username.clone());
         }
+    }
 
     // Add authors from referenced tweets
     if let Some(ref_tweets) = &tweet.referenced_tweets {
@@ -52,11 +53,12 @@ fn collect_usernames_from_referenced_tweet(
 
         // Add mentions from the referenced tweet
         if let Some(entities) = &data.entities
-            && let Some(mentions) = &entities.mentions {
-                for mention in mentions {
-                    usernames.insert(mention.username.clone());
-                }
+            && let Some(mentions) = &entities.mentions
+        {
+            for mention in mentions {
+                usernames.insert(mention.username.clone());
             }
+        }
     }
 }
 

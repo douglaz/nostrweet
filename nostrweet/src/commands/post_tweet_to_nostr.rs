@@ -120,20 +120,19 @@ pub async fn execute(
             .iter()
             .any(|url| url.contains("twitter.com") || url.contains("x.com")))
         && let Some(entities) = &tweet.entities
-            && let Some(urls) = &entities.urls {
-                for url_entity in urls {
-                    let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
-                    if expanded_url.contains("video")
-                        && (expanded_url.contains("twitter.com") || expanded_url.contains("x.com"))
-                    {
-                        need_extended_media = true;
-                        debug!(
-                            "Tweet contains video reference but no direct media: {expanded_url}"
-                        );
-                        break;
-                    }
-                }
+        && let Some(urls) = &entities.urls
+    {
+        for url_entity in urls {
+            let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
+            if expanded_url.contains("video")
+                && (expanded_url.contains("twitter.com") || expanded_url.contains("x.com"))
+            {
+                need_extended_media = true;
+                debug!("Tweet contains video reference but no direct media: {expanded_url}");
+                break;
             }
+        }
+    }
 
     // If we suspect there's a video but don't have direct media URLs, fetch extended media
     if need_extended_media {

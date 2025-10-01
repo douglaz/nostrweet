@@ -36,9 +36,10 @@ pub async fn execute(data_dir: &PathBuf) -> Result<()> {
     let mut file_times = HashMap::new();
     for path in &tweet_files {
         if let Ok(metadata) = fs::metadata(path).await
-            && let Ok(modified) = metadata.modified() {
-                file_times.insert(path.clone(), modified);
-            }
+            && let Ok(modified) = metadata.modified()
+        {
+            file_times.insert(path.clone(), modified);
+        }
     }
 
     // Clone tweet_files before sorting to avoid borrow checker issues
