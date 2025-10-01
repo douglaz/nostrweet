@@ -831,6 +831,7 @@ pub fn format_tweet_as_nostr_content_with_mentions(
 
 /// Format a tweet as Nostr content (legacy version without mention resolution)
 /// This function is kept for backward compatibility with tests
+#[allow(dead_code)]
 pub fn format_tweet_as_nostr_content(
     tweet: &crate::twitter::Tweet,
     media_urls: &[String],
@@ -1313,6 +1314,7 @@ pub async fn update_relay_list(client: &Client, keys: &Keys, relays: &[String]) 
 
 /// Add the main tweet content (legacy version)
 /// Returns the list of media URLs that were used inline
+#[allow(dead_code)]
 fn add_tweet_content_legacy(
     content: &mut String,
     tweet: &crate::twitter::Tweet,
@@ -1343,6 +1345,7 @@ fn add_tweet_content_legacy(
 }
 
 /// Add referenced tweets (legacy version)
+#[allow(dead_code)]
 fn add_referenced_tweets_legacy(
     content: &mut String,
     tweet: &crate::twitter::Tweet,
@@ -1402,6 +1405,7 @@ fn add_referenced_tweets_legacy(
 }
 
 /// Format a reply tweet (legacy version)
+#[allow(dead_code)]
 fn format_reply_tweet_legacy(
     content: &mut String,
     ref_tweet: &crate::twitter::ReferencedTweet,
@@ -1438,6 +1442,7 @@ fn format_reply_tweet_legacy(
 }
 
 /// Format a quoted tweet (legacy version)
+#[allow(dead_code)]
 fn format_quote_tweet_legacy(
     content: &mut String,
     ref_tweet: &crate::twitter::ReferencedTweet,
@@ -1474,6 +1479,7 @@ fn format_quote_tweet_legacy(
 }
 
 /// Format a retweet (legacy version)
+#[allow(dead_code)]
 fn format_retweet_legacy(
     content: &mut String,
     ref_tweet: &crate::twitter::ReferencedTweet,
