@@ -32,15 +32,15 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
         }
 
         // Handle videos and GIFs (URLs in variants)
-        if media.type_field == "video" || media.type_field == "animated_gif" {
-            if let Some(variants) = &media.variants {
-                // Find the variant with the highest bitrate (highest quality)
-                return variants
-                    .iter()
-                    .filter_map(|v| v.bit_rate.map(|br| (br, &v.url)))
-                    .max_by_key(|&(br, _)| br)
-                    .map(|(_, url)| url.clone());
-            }
+        if (media.type_field == "video" || media.type_field == "animated_gif")
+            && let Some(variants) = &media.variants
+        {
+            // Find the variant with the highest bitrate (highest quality)
+            return variants
+                .iter()
+                .filter_map(|v| v.bit_rate.map(|br| (br, &v.url)))
+                .max_by_key(|&(br, _)| br)
+                .map(|(_, url)| url.clone());
         }
 
         // Fallback to preview image if available
@@ -53,19 +53,19 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
     ) -> Vec<String> {
         let mut video_urls = Vec::new();
 
-        if let Some(entities) = entities {
-            if let Some(urls) = &entities.urls {
-                for url_entity in urls {
-                    // Get expanded URL or fall back to original
-                    let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
+        if let Some(entities) = entities
+            && let Some(urls) = &entities.urls
+        {
+            for url_entity in urls {
+                // Get expanded URL or fall back to original
+                let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
 
-                    // Check if this is a Twitter/X video URL
-                    if expanded_url.contains("video")
-                        && (expanded_url.contains("twitter.com") || expanded_url.contains("x.com"))
-                    {
-                        debug!("Found Twitter video URL in entities: {expanded_url}");
-                        video_urls.push(expanded_url.clone());
-                    }
+                // Check if this is a Twitter/X video URL
+                if expanded_url.contains("video")
+                    && (expanded_url.contains("twitter.com") || expanded_url.contains("x.com"))
+                {
+                    debug!("Found Twitter video URL in entities: {expanded_url}");
+                    video_urls.push(expanded_url.clone());
                 }
             }
         }
@@ -74,12 +74,12 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
     }
 
     // Extract media from the main tweet
-    if let Some(includes) = &tweet.includes {
-        if let Some(media_items) = &includes.media {
-            for media in media_items {
-                if let Some(url) = process_media_item(media) {
-                    media_urls.push(url);
-                }
+    if let Some(includes) = &tweet.includes
+        && let Some(media_items) = &includes.media
+    {
+        for media in media_items {
+            if let Some(url) = process_media_item(media) {
+                media_urls.push(url);
             }
         }
     }
@@ -101,17 +101,15 @@ pub fn extract_media_urls_from_tweet(tweet: &Tweet) -> Vec<String> {
         }
     } else {
         // Even if we have some media, check if any entity URLs indicate video content that we might need to fetch
-        if let Some(entities) = &tweet.entities {
-            if let Some(urls) = &entities.urls {
-                for url_entity in urls {
-                    let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
-                    if expanded_url.contains("video")
-                        && (expanded_url.contains("twitter.com") || expanded_url.contains("x.com"))
-                    {
-                        debug!(
-                            "Tweet might contain video content not fully expanded: {expanded_url}"
-                        );
-                    }
+        if let Some(entities) = &tweet.entities
+            && let Some(urls) = &entities.urls
+        {
+            for url_entity in urls {
+                let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
+                if expanded_url.contains("video")
+                    && (expanded_url.contains("twitter.com") || expanded_url.contains("x.com"))
+                {
+                    debug!("Tweet might contain video content not fully expanded: {expanded_url}");
                 }
             }
         }
@@ -133,22 +131,22 @@ pub async fn download_media(
     let client = create_http_client_with_context()?;
 
     // Process media from the main tweet
-    if let Some(includes) = &tweet.includes {
-        if let Some(media_items) = &includes.media {
-            for media in media_items.iter() {
-                match download_media_item(&client, media, tweet, data_dir, bearer_token).await {
-                    Ok(result) => media_files.push(result),
-                    Err(e) => {
-                        warn!(
-                            "Failed to download media item (type: {media_type}, key: {media_key}) for tweet {tweet_id}: {error}",
-                            media_type = media.type_field,
-                            media_key = media.media_key,
-                            tweet_id = tweet.id,
-                            error = e
-                        );
-                        // Optionally, attempt to clean up partially created file if necessary,
-                        // but for now, just logging and continuing is the main goal.
-                    }
+    if let Some(includes) = &tweet.includes
+        && let Some(media_items) = &includes.media
+    {
+        for media in media_items.iter() {
+            match download_media_item(&client, media, tweet, data_dir, bearer_token).await {
+                Ok(result) => media_files.push(result),
+                Err(e) => {
+                    warn!(
+                        "Failed to download media item (type: {media_type}, key: {media_key}) for tweet {tweet_id}: {error}",
+                        media_type = media.type_field,
+                        media_key = media.media_key,
+                        tweet_id = tweet.id,
+                        error = e
+                    );
+                    // Optionally, attempt to clean up partially created file if necessary,
+                    // but for now, just logging and continuing is the main goal.
                 }
             }
         }
@@ -165,27 +163,27 @@ pub async fn download_media(
                     original_tweet.id
                 );
 
-                if let Some(includes) = &original_tweet.includes {
-                    if let Some(media_items) = &includes.media {
-                        for media_item in media_items.iter() {
-                            match download_media_item(
-                                &client,
-                                media_item,
-                                original_tweet,
-                                data_dir,
-                                bearer_token,
-                            )
-                            .await
-                            {
-                                Ok(result) => media_files.push(result),
-                                Err(e) => {
-                                    warn!(
-                                        "Failed to download media item from referenced tweet (original_tweet_id: {id}, media_type: {field_type}, media_key: {key}): {e}",
-                                        id = original_tweet.id,
-                                        field_type = media_item.type_field,
-                                        key = media_item.media_key
-                                    );
-                                }
+                if let Some(includes) = &original_tweet.includes
+                    && let Some(media_items) = &includes.media
+                {
+                    for media_item in media_items.iter() {
+                        match download_media_item(
+                            &client,
+                            media_item,
+                            original_tweet,
+                            data_dir,
+                            bearer_token,
+                        )
+                        .await
+                        {
+                            Ok(result) => media_files.push(result),
+                            Err(e) => {
+                                warn!(
+                                    "Failed to download media item from referenced tweet (original_tweet_id: {id}, media_type: {field_type}, media_key: {key}): {e}",
+                                    id = original_tweet.id,
+                                    field_type = media_item.type_field,
+                                    key = media_item.media_key
+                                );
                             }
                         }
                     }
@@ -479,16 +477,16 @@ async fn download_media_item(
     let req_builder = build_media_request(client, download_url, &media.type_field, bearer_token)?;
 
     // Debug: log the prepared request headers to diagnose 403
-    if let Some(rb) = req_builder.try_clone() {
-        if let Ok(request) = rb.build() {
-            debug!(
-                "Media download request: {} {}",
-                request.method(),
-                request.url()
-            );
-            for (name, value) in request.headers() {
-                debug!("Header {name}: {value:?}");
-            }
+    if let Some(rb) = req_builder.try_clone()
+        && let Ok(request) = rb.build()
+    {
+        debug!(
+            "Media download request: {} {}",
+            request.method(),
+            request.url()
+        );
+        for (name, value) in request.headers() {
+            debug!("Header {name}: {value:?}");
         }
     }
 

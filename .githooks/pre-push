@@ -8,12 +8,12 @@ echo ""
 if command -v nix >/dev/null 2>&1 && [ -f "flake.nix" ]; then
     # Check formatting
     echo "📝 Checking code formatting..."
-    if ! nix develop -c cargo fmt --check 2>/dev/null; then
+    if ! nix develop -c cargo fmt --all -- --check 2>/dev/null; then
         echo ""
-        echo "❌ Code is not formatted. Please run 'nix develop -c cargo fmt' before pushing."
+        echo "❌ Code is not formatted. Please run 'nix develop -c cargo fmt --all' before pushing."
         echo ""
         echo "To see what needs formatting:"
-        echo "  nix develop -c cargo fmt --check --verbose"
+        echo "  nix develop -c cargo fmt --all -- --check --verbose"
         exit 1
     fi
     echo "✅ Formatting check passed"
@@ -36,12 +36,12 @@ if command -v nix >/dev/null 2>&1 && [ -f "flake.nix" ]; then
 else
     # Fallback to regular cargo
     echo "📝 Checking code formatting..."
-    if ! cargo fmt --check 2>/dev/null; then
+    if ! cargo fmt --all -- --check 2>/dev/null; then
         echo ""
-        echo "❌ Code is not formatted. Please run 'cargo fmt' before pushing."
+        echo "❌ Code is not formatted. Please run 'cargo fmt --all' before pushing."
         echo ""
         echo "To see what needs formatting:"
-        echo "  cargo fmt --check --verbose"
+        echo "  cargo fmt --all -- --check --verbose"
         exit 1
     fi
     echo "✅ Formatting check passed"

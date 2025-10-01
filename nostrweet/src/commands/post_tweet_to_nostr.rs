@@ -115,25 +115,21 @@ pub async fn execute(
 
     // Check if we might need to fetch extended media information (if we suspect a video but don't have a direct URL)
     let mut need_extended_media = false;
-    if tweet_media_urls.is_empty()
+    if (tweet_media_urls.is_empty()
         || tweet_media_urls
             .iter()
-            .any(|url| url.contains("twitter.com") || url.contains("x.com"))
+            .any(|url| url.contains("twitter.com") || url.contains("x.com")))
+        && let Some(entities) = &tweet.entities
+        && let Some(urls) = &entities.urls
     {
-        if let Some(entities) = &tweet.entities {
-            if let Some(urls) = &entities.urls {
-                for url_entity in urls {
-                    let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
-                    if expanded_url.contains("video")
-                        && (expanded_url.contains("twitter.com") || expanded_url.contains("x.com"))
-                    {
-                        need_extended_media = true;
-                        debug!(
-                            "Tweet contains video reference but no direct media: {expanded_url}"
-                        );
-                        break;
-                    }
-                }
+        for url_entity in urls {
+            let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
+            if expanded_url.contains("video")
+                && (expanded_url.contains("twitter.com") || expanded_url.contains("x.com"))
+            {
+                need_extended_media = true;
+                debug!("Tweet contains video reference but no direct media: {expanded_url}");
+                break;
             }
         }
     }

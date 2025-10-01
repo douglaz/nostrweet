@@ -244,10 +244,10 @@ pub async fn run_all_tests(
     }
 
     // Stop shared relay if it was started
-    if let Some(mut r) = relay {
-        if !keep_relay {
-            r.stop().await.ok();
-        }
+    if let Some(mut r) = relay
+        && !keep_relay
+    {
+        r.stop().await.ok();
     }
 
     // Print summary
@@ -382,13 +382,12 @@ fn find_nostrweet_binary() -> Result<PathBuf> {
     if let Ok(output) = std::process::Command::new("which")
         .arg("nostrweet")
         .output()
+        && output.status.success()
     {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                info!("Found nostrweet in PATH: {path}");
-                return Ok(PathBuf::from(path));
-            }
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() {
+            info!("Found nostrweet in PATH: {path}");
+            return Ok(PathBuf::from(path));
         }
     }
 

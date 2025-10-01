@@ -433,31 +433,30 @@ impl TwitterClient {
                     // First check cache if a directory is provided
                     let mut found_in_cache = false;
 
-                    if let Some(data_dir) = data_dir {
-                        if let Some(ref_path) =
+                    if let Some(data_dir) = data_dir
+                        && let Some(ref_path) =
                             crate::storage::find_existing_tweet_json(&ref_tweet.id, data_dir)
-                        {
-                            debug!("Found cached referenced tweet {id}", id = ref_tweet.id);
+                    {
+                        debug!("Found cached referenced tweet {id}", id = ref_tweet.id);
 
-                            // Try to load the referenced tweet from cache
-                            match crate::storage::load_tweet_from_file(&ref_path) {
-                                Ok(referenced_tweet) => {
-                                    // Store the cached tweet in the data field
-                                    ref_tweet.data = Some(Box::new(referenced_tweet));
-                                    debug!(
-                                        "Successfully loaded cached referenced tweet {id}",
-                                        id = ref_tweet.id
-                                    );
-                                    found_in_cache = true;
-                                }
-                                Err(e) => {
-                                    // Just log the error and continue to API fetch
-                                    debug!(
-                                        "Failed to load cached referenced tweet {id}: {error}",
-                                        id = ref_tweet.id,
-                                        error = e
-                                    );
-                                }
+                        // Try to load the referenced tweet from cache
+                        match crate::storage::load_tweet_from_file(&ref_path) {
+                            Ok(referenced_tweet) => {
+                                // Store the cached tweet in the data field
+                                ref_tweet.data = Some(Box::new(referenced_tweet));
+                                debug!(
+                                    "Successfully loaded cached referenced tweet {id}",
+                                    id = ref_tweet.id
+                                );
+                                found_in_cache = true;
+                            }
+                            Err(e) => {
+                                // Just log the error and continue to API fetch
+                                debug!(
+                                    "Failed to load cached referenced tweet {id}: {error}",
+                                    id = ref_tweet.id,
+                                    error = e
+                                );
                             }
                         }
                     }
@@ -575,32 +574,31 @@ impl TwitterClient {
     /// Internal implementation of tweet fetching logic
     async fn get_tweet_internal(&self, tweet_id: &str) -> Result<Tweet> {
         // First check if we can find the tweet in the data directory
-        if let Some(ref data_path) = self.data_dir {
-            if let Some(existing_path) =
+        if let Some(ref data_path) = self.data_dir
+            && let Some(existing_path) =
                 crate::storage::find_existing_tweet_json(tweet_id, data_path)
-            {
-                debug!(
-                    "Found tweet {tweet_id} in directory {path}, loading from disk",
-                    path = existing_path.parent().unwrap_or(Path::new("./")).display()
-                );
-                return crate::storage::load_tweet_from_file(&existing_path);
-            }
+        {
+            debug!(
+                "Found tweet {tweet_id} in directory {path}, loading from disk",
+                path = existing_path.parent().unwrap_or(Path::new("./")).display()
+            );
+            return crate::storage::load_tweet_from_file(&existing_path);
         }
 
         // Check if tweet is marked as "not found" in the primary data_dir
-        if let Some(ref data_path) = self.data_dir {
-            if data_path.exists() {
-                // Only check if data_dir itself exists
-                if crate::storage::is_tweet_not_found(tweet_id, data_path) {
-                    debug!(
-                        "Tweet {tweet_id} is cached as not found in {path}, skipping API call",
-                        path = data_path.display()
-                    );
-                    return Err(TwitterError::TweetNotFound {
-                        tweet_id: tweet_id.to_string(),
-                    }
-                    .into());
+        if let Some(ref data_path) = self.data_dir
+            && data_path.exists()
+        {
+            // Only check if data_dir itself exists
+            if crate::storage::is_tweet_not_found(tweet_id, data_path) {
+                debug!(
+                    "Tweet {tweet_id} is cached as not found in {path}, skipping API call",
+                    path = data_path.display()
+                );
+                return Err(TwitterError::TweetNotFound {
+                    tweet_id: tweet_id.to_string(),
                 }
+                .into());
             }
         }
 
@@ -639,14 +637,14 @@ impl TwitterClient {
                 );
                 if let Some(ref data_path) = self.data_dir {
                     // Ensure data directory exists before trying to write the .not_found file
-                    if !data_path.exists() {
-                        if let Err(e) = std::fs::create_dir_all(data_path) {
-                            debug!(
-                                "Failed to create data directory {path} for .not_found marker: {e}",
-                                path = data_path.display()
-                            );
-                            // If dir creation fails, we can't mark it, so just proceed to bail
-                        }
+                    if !data_path.exists()
+                        && let Err(e) = std::fs::create_dir_all(data_path)
+                    {
+                        debug!(
+                            "Failed to create data directory {path} for .not_found marker: {e}",
+                            path = data_path.display()
+                        );
+                        // If dir creation fails, we can't mark it, so just proceed to bail
                     }
                     // Re-check existence in case create_dir_all failed silently or due to permissions
                     if data_path.exists() {
@@ -717,19 +715,16 @@ impl TwitterClient {
                         );
 
                         // Save referenced tweet to cache if data directory is available
-                        if let Some(ref data_path) = self.data_dir {
-                            if let Some(ref tweet_data) = ref_tweet.data {
-                                if let Err(e) = crate::storage::save_tweet(tweet_data, data_path) {
-                                    debug!(
-                                        "Failed to save referenced tweet {id} to cache: {e}",
-                                        id = ref_tweet.id
-                                    );
-                                } else {
-                                    debug!(
-                                        "Saved referenced tweet {id} to cache",
-                                        id = ref_tweet.id
-                                    );
-                                }
+                        if let Some(ref data_path) = self.data_dir
+                            && let Some(ref tweet_data) = ref_tweet.data
+                        {
+                            if let Err(e) = crate::storage::save_tweet(tweet_data, data_path) {
+                                debug!(
+                                    "Failed to save referenced tweet {id} to cache: {e}",
+                                    id = ref_tweet.id
+                                );
+                            } else {
+                                debug!("Saved referenced tweet {id} to cache", id = ref_tweet.id);
                             }
                         }
                     }
@@ -745,28 +740,28 @@ impl TwitterClient {
         }
 
         // Extract author data
-        if let Some(includes) = &tweet.includes {
-            if let Some(users) = &includes.users {
-                if let Some(author_id) = &tweet.author_id {
-                    if let Some(user) = users.iter().find(|u| u.id == *author_id) {
-                        tweet.author = user.clone();
-                    } else if let Some(first) = users.first() {
-                        // Fallback to the first user if the author was not found
-                        tweet.author = first.clone();
-                    }
+        if let Some(includes) = &tweet.includes
+            && let Some(users) = &includes.users
+        {
+            if let Some(author_id) = &tweet.author_id {
+                if let Some(user) = users.iter().find(|u| u.id == *author_id) {
+                    tweet.author = user.clone();
                 } else if let Some(first) = users.first() {
+                    // Fallback to the first user if the author was not found
                     tweet.author = first.clone();
                 }
+            } else if let Some(first) = users.first() {
+                tweet.author = first.clone();
             }
         }
 
         // Save tweet to cache if data directory is available
         if let Some(ref data_path) = self.data_dir {
             // Ensure data directory exists
-            if !data_path.exists() {
-                if let Err(e) = std::fs::create_dir_all(data_path) {
-                    debug!("Failed to create data directory: {e}");
-                }
+            if !data_path.exists()
+                && let Err(e) = std::fs::create_dir_all(data_path)
+            {
+                debug!("Failed to create data directory: {e}");
             }
 
             // Save tweet to cache
@@ -823,10 +818,10 @@ impl TwitterClient {
         let mut cached_tweets = Vec::new();
 
         // Try to load cached tweets for this user
-        if let Some(ref data_path) = self.data_dir {
-            if data_path.exists() {
-                self.load_cached_tweets_for_user(username, data_path, &mut cached_tweets);
-            }
+        if let Some(ref data_path) = self.data_dir
+            && data_path.exists()
+        {
+            self.load_cached_tweets_for_user(username, data_path, &mut cached_tweets);
         }
 
         // If we found enough cached tweets, we can skip the API call
@@ -877,10 +872,10 @@ impl TwitterClient {
                     let user_map: HashMap<String, crate::twitter::User> =
                         users.iter().cloned().map(|u| (u.id.clone(), u)).collect();
                     for tweet in &mut tweets {
-                        if let Some(author_id) = &tweet.author_id {
-                            if let Some(user) = user_map.get(author_id) {
-                                tweet.author = user.clone();
-                            }
+                        if let Some(author_id) = &tweet.author_id
+                            && let Some(user) = user_map.get(author_id)
+                        {
+                            tweet.author = user.clone();
                         }
                     }
                 }
@@ -897,10 +892,10 @@ impl TwitterClient {
         // Save all newly fetched tweets to cache
         if let Some(ref data_path) = self.data_dir {
             // Ensure data directory exists
-            if !data_path.exists() {
-                if let Err(e) = std::fs::create_dir_all(data_path) {
-                    debug!("Failed to create data directory: {e}");
-                }
+            if !data_path.exists()
+                && let Err(e) = std::fs::create_dir_all(data_path)
+            {
+                debug!("Failed to create data directory: {e}");
             }
 
             // Save each tweet to cache
@@ -979,22 +974,22 @@ impl TwitterClient {
         }
 
         // Only add media that belongs to this tweet
-        if let Some(attachments) = &tweet.attachments {
-            if let Some(media_keys) = &attachments.media_keys {
-                // Create a Vector of Media items that match the media_keys
-                let mut tweet_media = Vec::new();
+        if let Some(attachments) = &tweet.attachments
+            && let Some(media_keys) = &attachments.media_keys
+        {
+            // Create a Vector of Media items that match the media_keys
+            let mut tweet_media = Vec::new();
 
-                for media in media_items {
-                    if media_keys.contains(&media.media_key) {
-                        tweet_media.push(media.clone());
-                    }
+            for media in media_items {
+                if media_keys.contains(&media.media_key) {
+                    tweet_media.push(media.clone());
                 }
+            }
 
-                if !tweet_media.is_empty() {
-                    if let Some(includes) = &mut tweet.includes {
-                        includes.media = Some(tweet_media);
-                    }
-                }
+            if !tweet_media.is_empty()
+                && let Some(includes) = &mut tweet.includes
+            {
+                includes.media = Some(tweet_media);
             }
         }
     }
@@ -1013,12 +1008,12 @@ impl TwitterClient {
                 if let Some(filename) = path.file_name() {
                     let filename = filename.to_string_lossy();
                     // Look for tweets from this user by checking filename
-                    if filename.contains(&username.to_lowercase()) && path.is_file() {
-                        if let Ok(tweet) = crate::storage::load_tweet_from_file(&path) {
-                            if tweet.author.username.to_lowercase() == username.to_lowercase() {
-                                cached_tweets.push(tweet);
-                            }
-                        }
+                    if filename.contains(&username.to_lowercase())
+                        && path.is_file()
+                        && let Ok(tweet) = crate::storage::load_tweet_from_file(&path)
+                        && tweet.author.username.to_lowercase() == username.to_lowercase()
+                    {
+                        cached_tweets.push(tweet);
                     }
                 }
             }
@@ -1150,23 +1145,22 @@ impl TwitterClient {
             .context("Failed to parse user profile response")?;
 
         // Resolve the shortened URL in the user's profile
-        if let Some(url_entity) = &mut user.data.entities {
-            if let Some(url_data) = &mut url_entity.url {
-                if let Some(urls) = &mut url_data.urls {
-                    for url_item in urls {
-                        if let Ok(expanded_url) = resolve_shortened_url(&url_item.url).await {
-                            url_item.expanded_url = Some(expanded_url);
-                        }
-                    }
+        if let Some(url_entity) = &mut user.data.entities
+            && let Some(url_data) = &mut url_entity.url
+            && let Some(urls) = &mut url_data.urls
+        {
+            for url_item in urls {
+                if let Ok(expanded_url) = resolve_shortened_url(&url_item.url).await {
+                    url_item.expanded_url = Some(expanded_url);
                 }
             }
         }
 
         // Also update the top-level URL if it exists
-        if let Some(url) = &user.data.url {
-            if let Ok(expanded_url) = resolve_shortened_url(url).await {
-                user.data.url = Some(expanded_url);
-            }
+        if let Some(url) = &user.data.url
+            && let Ok(expanded_url) = resolve_shortened_url(url).await
+        {
+            user.data.url = Some(expanded_url);
         }
 
         Ok(user.data)
@@ -1339,10 +1333,10 @@ pub fn parse_tweet_id(url_or_id: &str) -> Result<String> {
     // Try to match with regex for URLs that might not parse correctly
     let re = Regex::new(r"(?:twitter\.com|x\.com)/\w+/status/(\d+)")
         .context("Failed to compile tweet ID regex")?;
-    if let Some(captures) = re.captures(url_or_id) {
-        if let Some(id_match) = captures.get(1) {
-            return Ok(id_match.as_str().to_string());
-        }
+    if let Some(captures) = re.captures(url_or_id)
+        && let Some(id_match) = captures.get(1)
+    {
+        return Ok(id_match.as_str().to_string());
     }
 
     bail!("Could not extract tweet ID from: {url_or_id}")

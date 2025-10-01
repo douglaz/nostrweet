@@ -29,16 +29,16 @@ pub fn build_nostr_metadata_from_user(user: &twitter::User, username: &str) -> M
     };
     metadata = metadata.about(&about);
 
-    if let Some(profile_image_url) = &user.profile_image_url {
-        if let Ok(url) = Url::parse(profile_image_url) {
-            metadata = metadata.picture(url);
-        }
+    if let Some(profile_image_url) = &user.profile_image_url
+        && let Ok(url) = Url::parse(profile_image_url)
+    {
+        metadata = metadata.picture(url);
     }
 
-    if let Some(url_str) = &user.url {
-        if let Ok(url) = Url::parse(url_str) {
-            metadata = metadata.website(url);
-        }
+    if let Some(url_str) = &user.url
+        && let Ok(url) = Url::parse(url_str)
+    {
+        metadata = metadata.website(url);
     }
 
     metadata

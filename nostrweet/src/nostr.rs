@@ -152,101 +152,6 @@ impl TweetFormatter<'_> {
 
         Ok(final_text)
     }
-
-    /// Process tweet content: extract media, expand URLs, handle note_tweet
-    fn process_content(&self) -> FormattedContent {
-        // Use guaranteed extracted media URLs from EnrichedTweet
-        let tweet_media_urls = &self.enriched_tweet.media_urls;
-
-        // Get the appropriate text (note_tweet has full text, regular text may be truncated)
-        let (raw_base_text, has_note_tweet) =
-            if let Some(note) = &self.enriched_tweet.data.note_tweet {
-                (&note.text as &str, true)
-            } else {
-                (&self.enriched_tweet.data.text as &str, false)
-            };
-
-        // Decode HTML entities in the text
-        let decoded_base_text = decode_html_entities(raw_base_text);
-        let base_text = decoded_base_text.as_str();
-
-        // For URL expansion, we need the text that contains t.co URLs
-        // Also decode HTML entities in the expansion text
-        let decoded_expansion_text = decode_html_entities(&self.enriched_tweet.data.text);
-        let text_for_expansion = decoded_expansion_text.as_str();
-
-        // Expand URLs in the text
-        let (expanded_text, used_media_urls) = expand_urls_in_text(
-            text_for_expansion,
-            self.enriched_tweet.data.entities.as_ref(),
-            tweet_media_urls,
-            &self.enriched_tweet.data,
-        );
-
-        // If we have a note_tweet, we need to merge the expanded URLs into the full text
-        let final_text = if has_note_tweet && !used_media_urls.is_empty() {
-            merge_expanded_urls_into_full_text(base_text, text_for_expansion, &used_media_urls)
-        } else if has_note_tweet {
-            base_text.to_string()
-        } else {
-            expanded_text
-        };
-
-        // All media URLs are already included in the enriched tweet
-        // No need for additional external media URLs since they're guaranteed to be extracted
-
-        FormattedContent {
-            text: final_text,
-            used_media_urls,
-            mentioned_pubkeys: Vec::new(),
-        }
-    }
-}
-
-/// Merge expanded URLs from truncated text into the full note_tweet text
-fn merge_expanded_urls_into_full_text(
-    full_text: &str,
-    truncated_text: &str,
-    media_urls: &[String],
-) -> String {
-    // If no media URLs were used, return the full text as-is
-    if media_urls.is_empty() {
-        return full_text.to_string();
-    }
-
-    // Find the position where truncation occurred
-    // The truncated text should be a prefix of the full text (minus the t.co URL)
-    let truncation_point = truncated_text.rfind("https://t.co/").and_then(|pos| {
-        let before_url = &truncated_text[..pos];
-        full_text
-            .find(before_url.trim_end())
-            .map(|p| p + before_url.trim_end().len())
-    });
-
-    if let Some(pos) = truncation_point {
-        // Insert the media URL at the truncation point
-        let mut result = full_text.to_string();
-
-        // Check if we need spacing
-        let before_char = result.chars().nth(pos.saturating_sub(1));
-        let after_char = result.chars().nth(pos);
-
-        let needs_space_before = before_char.is_some_and(|c| !c.is_whitespace());
-        let needs_space_after = after_char.is_some_and(|c| !c.is_whitespace());
-
-        let url_with_spacing = match (needs_space_before, needs_space_after) {
-            (true, true) => [" ", &media_urls[0], " "].concat(),
-            (true, false) => [" ", &media_urls[0]].concat(),
-            (false, true) => [&media_urls[0], " "].concat(),
-            (false, false) => media_urls[0].clone(),
-        };
-
-        result.insert_str(pos, &url_with_spacing);
-        result
-    } else {
-        // Fallback: append at the end
-        [full_text.trim_end(), " ", &media_urls[0]].concat()
-    }
 }
 
 /// Builds a Twitter status URL from a tweet ID
@@ -650,57 +555,57 @@ fn expand_urls_in_text(
     let mut result = text.to_string();
     let mut used_media_urls = Vec::new();
 
-    if let Some(entities) = entities {
-        if let Some(urls) = &entities.urls {
-            // Process URLs in reverse order by length to handle overlapping replacements
-            let mut sorted_urls: Vec<_> = urls.iter().collect();
-            sorted_urls.sort_by(|a, b| b.url.len().cmp(&a.url.len()));
+    if let Some(entities) = entities
+        && let Some(urls) = &entities.urls
+    {
+        // Process URLs in reverse order by length to handle overlapping replacements
+        let mut sorted_urls: Vec<_> = urls.iter().collect();
+        sorted_urls.sort_by(|a, b| b.url.len().cmp(&a.url.len()));
 
-            for url_entity in sorted_urls {
-                // Get expanded URL or fall back to original
-                let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
+        for url_entity in sorted_urls {
+            // Get expanded URL or fall back to original
+            let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
 
-                // Only replace if the URL is actually shortened (expanded URL is different)
-                if &url_entity.url != expanded_url {
-                    // Enhanced media URL detection
-                    let is_media_url = is_twitter_media_url(expanded_url, &url_entity.display_url);
+            // Only replace if the URL is actually shortened (expanded URL is different)
+            if &url_entity.url != expanded_url {
+                // Enhanced media URL detection
+                let is_media_url = is_twitter_media_url(expanded_url, &url_entity.display_url);
 
-                    if is_media_url {
-                        // Find the corresponding media URL from the tweet's media
-                        if let Some(media_url) =
-                            find_media_url_for_shortened_url(&url_entity.url, tweet, media_urls)
-                        {
-                            // Replace with the actual media URL (no markdown formatting for direct media)
-                            result = safe_replace_url(&result, &url_entity.url, &media_url);
-                            used_media_urls.push(media_url);
-                        } else {
-                            // Fallback: use the original markdown link format if no media URL found
-                            let fallback_link = format!(
-                                "[{}]({})",
-                                sanitize_display_url(&url_entity.display_url),
-                                expanded_url
-                            );
-                            result = safe_replace_url(&result, &url_entity.url, &fallback_link);
-                        }
+                if is_media_url {
+                    // Find the corresponding media URL from the tweet's media
+                    if let Some(media_url) =
+                        find_media_url_for_shortened_url(&url_entity.url, tweet, media_urls)
+                    {
+                        // Replace with the actual media URL (no markdown formatting for direct media)
+                        result = safe_replace_url(&result, &url_entity.url, &media_url);
+                        used_media_urls.push(media_url);
                     } else {
-                        // Non-media URL: use regular expansion with markdown format
-                        if is_valid_url(expanded_url) {
-                            let markdown_link = format!(
-                                "[{}]({})",
-                                sanitize_display_url(&url_entity.display_url),
-                                expanded_url
-                            );
-                            result = safe_replace_url(&result, &url_entity.url, &markdown_link);
-                        } else {
-                            debug!("Invalid expanded URL {}, keeping original", expanded_url);
-                        }
+                        // Fallback: use the original markdown link format if no media URL found
+                        let fallback_link = format!(
+                            "[{}]({})",
+                            sanitize_display_url(&url_entity.display_url),
+                            expanded_url
+                        );
+                        result = safe_replace_url(&result, &url_entity.url, &fallback_link);
                     }
                 } else {
-                    debug!(
-                        "URL {url} is not shortened, keeping as-is",
-                        url = url_entity.url
-                    );
+                    // Non-media URL: use regular expansion with markdown format
+                    if is_valid_url(expanded_url) {
+                        let markdown_link = format!(
+                            "[{}]({})",
+                            sanitize_display_url(&url_entity.display_url),
+                            expanded_url
+                        );
+                        result = safe_replace_url(&result, &url_entity.url, &markdown_link);
+                    } else {
+                        debug!("Invalid expanded URL {}, keeping original", expanded_url);
+                    }
                 }
+            } else {
+                debug!(
+                    "URL {url} is not shortened, keeping as-is",
+                    url = url_entity.url
+                );
             }
         }
     }
@@ -721,21 +626,21 @@ fn find_media_url_for_shortened_url(
     }
 
     // First, try to match using URL entities
-    if let Some(entities) = &tweet.entities {
-        if let Some(urls) = &entities.urls {
-            for url_entity in urls {
-                if url_entity.url == shortened_url {
-                    // This is the matching t.co URL
-                    // If it's a video or photo URL, return the best media URL
-                    let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
-                    if is_twitter_media_url(expanded_url, &url_entity.display_url) {
-                        // For videos, prefer the highest quality variant which is typically last in media_urls
-                        // For images, any media URL should work
-                        if expanded_url.contains("/video/") {
-                            return media_urls.last().cloned();
-                        } else {
-                            return media_urls.first().cloned();
-                        }
+    if let Some(entities) = &tweet.entities
+        && let Some(urls) = &entities.urls
+    {
+        for url_entity in urls {
+            if url_entity.url == shortened_url {
+                // This is the matching t.co URL
+                // If it's a video or photo URL, return the best media URL
+                let expanded_url = url_entity.expanded_url.as_ref().unwrap_or(&url_entity.url);
+                if is_twitter_media_url(expanded_url, &url_entity.display_url) {
+                    // For videos, prefer the highest quality variant which is typically last in media_urls
+                    // For images, any media URL should work
+                    if expanded_url.contains("/video/") {
+                        return media_urls.last().cloned();
+                    } else {
+                        return media_urls.first().cloned();
                     }
                 }
             }
@@ -762,45 +667,45 @@ fn process_mentions_in_text(
     let mut mentioned_pubkeys = Vec::new();
     let mut processed_usernames = std::collections::HashSet::new();
 
-    if let Some(entities) = entities {
-        if let Some(mentions) = &entities.mentions {
-            // Process each mention
-            for mention in mentions {
-                let username = &mention.username;
+    if let Some(entities) = entities
+        && let Some(mentions) = &entities.mentions
+    {
+        // Process each mention
+        for mention in mentions {
+            let username = &mention.username;
 
-                // Skip if we've already processed this username (avoid duplicates)
-                if processed_usernames.contains(username) {
-                    continue;
-                }
-                processed_usernames.insert(username.clone());
+            // Skip if we've already processed this username (avoid duplicates)
+            if processed_usernames.contains(username) {
+                continue;
+            }
+            processed_usernames.insert(username.clone());
 
-                // Try to resolve the Twitter username to a Nostr pubkey
-                match resolver.resolve_username(username) {
-                    Ok(Some(pubkey)) => {
-                        // Convert pubkey to npub format
-                        match pubkey.to_bech32() {
-                            Ok(npub) => {
-                                // Replace @username with nostr:npub... link
-                                let old_mention = format!("@{username}");
-                                let new_mention = format!("nostr:{npub}");
-                                result = result.replace(&old_mention, &new_mention);
+            // Try to resolve the Twitter username to a Nostr pubkey
+            match resolver.resolve_username(username) {
+                Ok(Some(pubkey)) => {
+                    // Convert pubkey to npub format
+                    match pubkey.to_bech32() {
+                        Ok(npub) => {
+                            // Replace @username with nostr:npub... link
+                            let old_mention = format!("@{username}");
+                            let new_mention = format!("nostr:{npub}");
+                            result = result.replace(&old_mention, &new_mention);
 
-                                // Add to mentioned pubkeys list
-                                mentioned_pubkeys.push(pubkey);
+                            // Add to mentioned pubkeys list
+                            mentioned_pubkeys.push(pubkey);
 
-                                debug!("Converted @{username} to {npub}");
-                            }
-                            Err(e) => {
-                                warn!("Failed to convert pubkey to bech32 for @{username}: {e}");
-                            }
+                            debug!("Converted @{username} to {npub}");
+                        }
+                        Err(e) => {
+                            warn!("Failed to convert pubkey to bech32 for @{username}: {e}");
                         }
                     }
-                    Ok(None) => {
-                        debug!("Could not resolve @{username} to Nostr pubkey, keeping as-is");
-                    }
-                    Err(e) => {
-                        warn!("Error resolving @{username}: {e}");
-                    }
+                }
+                Ok(None) => {
+                    debug!("Could not resolve @{username} to Nostr pubkey, keeping as-is");
+                }
+                Err(e) => {
+                    warn!("Error resolving @{username}: {e}");
                 }
             }
         }
@@ -924,27 +829,6 @@ pub fn format_tweet_as_nostr_content_with_mentions(
     Ok((content, all_mentioned_pubkeys))
 }
 
-/// Format a tweet as Nostr content (legacy version without mention resolution)
-pub fn format_tweet_as_nostr_content(
-    tweet: &crate::twitter::Tweet,
-    media_urls: &[String],
-) -> String {
-    let mut content = String::new();
-
-    let (is_simple_retweet, rt_username) = analyze_retweet(tweet);
-
-    add_author_info(&mut content, tweet, is_simple_retweet);
-    let used_media_urls = add_tweet_content(&mut content, tweet, is_simple_retweet, media_urls);
-    add_referenced_tweets(&mut content, tweet, is_simple_retweet, &rt_username);
-    // For simple retweets, don't add media URLs since they belong to the retweeted content
-    if !is_simple_retweet {
-        add_media_urls(&mut content, media_urls, &used_media_urls);
-    }
-    add_original_tweet_url(&mut content, &tweet.id);
-
-    content
-}
-
 /// Check if a tweet is a simple retweet and extract username if possible
 fn analyze_retweet(tweet: &crate::twitter::Tweet) -> (bool, Option<String>) {
     let Some(ref_tweets) = &tweet.referenced_tweets else {
@@ -1042,37 +926,6 @@ fn add_tweet_content_with_mentions(
     Ok((used_media_urls, mentioned_pubkeys))
 }
 
-/// Add the main tweet content
-/// Returns the list of media URLs that were used inline
-fn add_tweet_content(
-    content: &mut String,
-    tweet: &crate::twitter::Tweet,
-    is_simple_retweet: bool,
-    media_urls: &[String],
-) -> Vec<String> {
-    if is_simple_retweet {
-        return Vec::new();
-    }
-
-    // Add tweet text with expanded URLs
-    // Prefer extended text when available
-    let raw_text = if let Some(note) = &tweet.note_tweet {
-        &note.text
-    } else {
-        &tweet.text
-    };
-
-    // Decode HTML entities first
-    let decoded_text = decode_html_entities(raw_text);
-
-    let (expanded_text, used_media_urls) =
-        expand_urls_in_text(&decoded_text, tweet.entities.as_ref(), media_urls, tweet);
-    content.push_str(&expanded_text);
-    content.push_str("\n\n");
-
-    used_media_urls
-}
-
 /// Format a reply tweet with mention resolution
 fn format_reply_tweet_with_mentions(
     content: &mut String,
@@ -1138,51 +991,6 @@ fn format_reply_tweet_with_mentions(
     Ok(mentioned_pubkeys)
 }
 
-/// Format a reply tweet
-fn format_reply_tweet(
-    content: &mut String,
-    ref_tweet: &crate::twitter::ReferencedTweet,
-    tweet_url: &str,
-) {
-    if let Some(ref_data) = &ref_tweet.data {
-        // Legacy formatter without mention resolution
-        let mut dummy_resolver = NostrLinkResolver::new(None, None);
-        // Create enriched tweet with guaranteed media URL extraction
-        let enriched_tweet = EnrichedTweet::from((**ref_data).clone());
-        let formatter = TweetFormatter {
-            enriched_tweet: &enriched_tweet,
-            resolver: &mut dummy_resolver,
-        };
-        let formatted = formatter.process_content();
-
-        // Add reply header
-        content.push_str(&format!(
-            "↩️ Reply to @{username}:\n",
-            username = ref_data.author.username
-        ));
-
-        // Add content
-        content.push_str(&formatted.text);
-        content.push('\n');
-
-        // Add any unused media URLs
-        for url in &enriched_tweet.media_urls {
-            if !formatted.used_media_urls.contains(url) {
-                content.push_str(&format!("{url}\n"));
-            }
-        }
-
-        // Add link to original tweet
-        content.push_str(&format!("{tweet_url}\n"));
-    } else {
-        // Fallback: simple link if data not available
-        content.push_str(&format!(
-            "↩️ Reply to Tweet {id}\n{tweet_url}\n",
-            id = ref_tweet.id
-        ));
-    }
-}
-
 /// Format a quoted tweet with mention resolution
 fn format_quote_tweet_with_mentions(
     content: &mut String,
@@ -1246,51 +1054,6 @@ fn format_quote_tweet_with_mentions(
     }
 
     Ok(mentioned_pubkeys)
-}
-
-/// Format a quoted tweet
-fn format_quote_tweet(
-    content: &mut String,
-    ref_tweet: &crate::twitter::ReferencedTweet,
-    tweet_url: &str,
-) {
-    if let Some(ref_data) = &ref_tweet.data {
-        // Legacy formatter without mention resolution
-        let mut dummy_resolver = NostrLinkResolver::new(None, None);
-        // Create enriched tweet with guaranteed media URL extraction
-        let enriched_tweet = EnrichedTweet::from((**ref_data).clone());
-        let formatter = TweetFormatter {
-            enriched_tweet: &enriched_tweet,
-            resolver: &mut dummy_resolver,
-        };
-        let formatted = formatter.process_content();
-
-        // Add quote header
-        content.push_str(&format!(
-            "💬 Quote of @{username}:\n",
-            username = ref_data.author.username
-        ));
-
-        // Add content
-        content.push_str(&formatted.text);
-        content.push('\n');
-
-        // Add any unused media URLs
-        for url in &enriched_tweet.media_urls {
-            if !formatted.used_media_urls.contains(url) {
-                content.push_str(&format!("{url}\n"));
-            }
-        }
-
-        // Add link to original tweet
-        content.push_str(&format!("{tweet_url}\n"));
-    } else {
-        // Fallback: simple link if data not available
-        content.push_str(&format!(
-            "💬 Quote of Tweet {id}\n{tweet_url}\n",
-            id = ref_tweet.id
-        ));
-    }
 }
 
 /// Format a retweet with mention resolution
@@ -1404,77 +1167,6 @@ fn format_retweet_with_mentions(
     Ok(mentioned_pubkeys)
 }
 
-/// Format a retweet
-fn format_retweet(
-    content: &mut String,
-    ref_tweet: &crate::twitter::ReferencedTweet,
-    tweet_url: &str,
-    tweet: &crate::twitter::Tweet,
-    is_simple_retweet: bool,
-    rt_username: &Option<String>,
-) {
-    if let Some(ref_data) = &ref_tweet.data {
-        // Add retweet header
-        let prefix = if is_simple_retweet {
-            let base = format!("🔁 @{username} retweeted", username = tweet.author.username);
-            match rt_username {
-                Some(username) => format!("{base} @{username}:\n"),
-                None => format!("{base}:\n"),
-            }
-        } else {
-            format!(
-                "🔄 Retweet of @{username}:\n",
-                username = ref_data.author.username
-            )
-        };
-        content.push_str(&prefix);
-
-        // Process the retweeted content
-        // Extract media URLs first so they can be used for URL expansion
-        // Create enriched tweet with guaranteed media URL extraction
-        let enriched_tweet = EnrichedTweet::from((**ref_data).clone());
-
-        // Legacy formatter without mention resolution
-        let mut dummy_resolver = NostrLinkResolver::new(None, None);
-        let formatter = TweetFormatter {
-            enriched_tweet: &enriched_tweet, // Pass the media URLs for proper expansion
-            resolver: &mut dummy_resolver,
-        };
-        let formatted = formatter.process_content();
-
-        // Add content
-        content.push_str(&formatted.text);
-        content.push('\n');
-
-        // For non-note_tweet cases, add unused media URLs
-        if ref_data.note_tweet.is_none() {
-            for url in &enriched_tweet.media_urls {
-                if !formatted.used_media_urls.contains(url) {
-                    content.push_str(&format!("{url}\n"));
-                }
-            }
-        }
-
-        // Add link to original tweet
-        content.push_str(&format!("{tweet_url}\n"));
-    } else {
-        // Fallback for simple retweets without data
-        if is_simple_retweet && rt_username.is_some() {
-            if let Some(username) = rt_username {
-                content.push_str(&format!(
-                    "🔁 @{} retweeted @{username}:\n{tweet_url}\n",
-                    tweet.author.username
-                ));
-            }
-        } else {
-            content.push_str(&format!(
-                "🔄 Retweet of Tweet {id}\n{tweet_url}\n",
-                id = ref_tweet.id
-            ));
-        }
-    }
-}
-
 /// Add referenced tweets with mention resolution
 fn add_referenced_tweets_with_mentions(
     content: &mut String,
@@ -1528,61 +1220,6 @@ fn add_referenced_tweets_with_mentions(
     }
 
     Ok(all_mentioned_pubkeys)
-}
-
-/// Add referenced tweets (replies, quotes, retweets)
-fn add_referenced_tweets(
-    content: &mut String,
-    tweet: &crate::twitter::Tweet,
-    is_simple_retweet: bool,
-    rt_username: &Option<String>,
-) {
-    let Some(referenced_tweets) = &tweet.referenced_tweets else {
-        return;
-    };
-
-    for ref_tweet in referenced_tweets {
-        let tweet_url = build_twitter_status_url(&ref_tweet.id);
-
-        match ref_tweet.type_field.as_str() {
-            "replied_to" => format_reply_tweet(content, ref_tweet, &tweet_url),
-            "quoted" => format_quote_tweet(content, ref_tweet, &tweet_url),
-            "retweeted" => format_retweet(
-                content,
-                ref_tweet,
-                &tweet_url,
-                tweet,
-                is_simple_retweet,
-                rt_username,
-            ),
-            _ => {
-                // Generic reference format for unknown types
-                if let Some(ref_data) = &ref_tweet.data {
-                    content.push_str(&format!(
-                        "🔗 Reference to @{username}:\n",
-                        username = ref_data.author.username
-                    ));
-                    // Legacy formatter without mention resolution
-                    let mut dummy_resolver = NostrLinkResolver::new(None, None);
-                    // Create enriched tweet with guaranteed media URL extraction
-                    let enriched_tweet = EnrichedTweet::from((**ref_data).clone());
-                    let formatter = TweetFormatter {
-                        enriched_tweet: &enriched_tweet,
-                        resolver: &mut dummy_resolver,
-                    };
-                    let formatted = formatter.process_content();
-                    content.push_str(&formatted.text);
-                    content.push('\n');
-                    content.push_str(&format!("{tweet_url}\n"));
-                } else {
-                    content.push_str(&format!(
-                        "🔗 Reference to Tweet {}\n{tweet_url}\n",
-                        ref_tweet.id
-                    ));
-                }
-            }
-        }
-    }
 }
 
 /// Add media URLs to the content (only those not already used inline)
@@ -1652,41 +1289,10 @@ pub async fn update_relay_list(client: &Client, keys: &Keys, relays: &[String]) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::twitter::{Entities, NoteTweet, ReferencedTweet, Tweet, UrlEntity, User};
+    use crate::twitter::{Entities, ReferencedTweet, Tweet, UrlEntity, User};
     use pretty_assertions::assert_eq;
 
     const TEST_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-
-    fn create_test_tweet() -> Tweet {
-        Tweet {
-            id: "123456789".to_string(),
-            text: "This is a test tweet with a link https://t.co/abc123".to_string(),
-            author: User {
-                id: "987654321".to_string(),
-                name: Some("Test User".to_string()),
-                username: "testuser".to_string(),
-                profile_image_url: None,
-                description: None,
-                url: None,
-                entities: None,
-            },
-            referenced_tweets: None,
-            attachments: None,
-            created_at: "2023-01-01T00:00:00Z".to_string(),
-            entities: Some(Entities {
-                urls: Some(vec![UrlEntity {
-                    url: "https://t.co/abc123".to_string(),
-                    expanded_url: Some("https://example.com/article".to_string()),
-                    display_url: "example.com/article".to_string(),
-                }]),
-                hashtags: None,
-                mentions: None,
-            }),
-            includes: None,
-            author_id: Some("987654321".to_string()),
-            note_tweet: None,
-        }
-    }
 
     fn create_test_tweet_with_mentions() -> Tweet {
         Tweet {
@@ -1880,170 +1486,6 @@ mod tests {
         assert!(mentioned_pubkeys.len() >= 2); // alice + replyuser at minimum
 
         Ok(())
-    }
-
-    #[test]
-    fn test_format_tweet_with_html_entities() {
-        let mut tweet = create_test_tweet();
-        tweet.text = "This tweet has &gt; and &lt; and &amp; symbols".to_string();
-
-        let content = format_tweet_as_nostr_content(&tweet, &[]);
-
-        let expected = "🐦 @testuser: This tweet has > and < and & symbols\n\n\nOriginal tweet: https://twitter.com/i/status/123456789";
-
-        pretty_assertions::assert_eq!(content, expected);
-    }
-
-    #[test]
-    fn test_format_simple_tweet() {
-        let tweet = create_test_tweet();
-        let content = format_tweet_as_nostr_content(&tweet, &[]);
-
-        let expected = "🐦 @testuser: This is a test tweet with a link [example.com/article](https://example.com/article)\n\n\nOriginal tweet: https://twitter.com/i/status/123456789";
-
-        pretty_assertions::assert_eq!(content, expected);
-    }
-
-    #[test]
-    fn test_format_tweet_with_media() {
-        let tweet = create_test_tweet();
-        let media_urls = vec![
-            "https://media.example.com/image1.jpg".to_string(),
-            "https://media.example.com/video1.mp4".to_string(),
-        ];
-        let content = format_tweet_as_nostr_content(&tweet, &media_urls);
-
-        let expected = "🐦 @testuser: This is a test tweet with a link [example.com/article](https://example.com/article)\n\nhttps://media.example.com/image1.jpg\nhttps://media.example.com/video1.mp4\n\nOriginal tweet: https://twitter.com/i/status/123456789";
-
-        pretty_assertions::assert_eq!(content, expected);
-    }
-
-    #[test]
-    fn test_format_retweet() {
-        let mut tweet = create_test_tweet();
-        tweet.text = "RT @originaluser: Original tweet content".to_string();
-        tweet.referenced_tweets = Some(vec![ReferencedTweet {
-            id: "111111111".to_string(),
-            type_field: "retweeted".to_string(),
-            data: Some(Box::new(Tweet {
-                id: "111111111".to_string(),
-                text: "Original tweet content".to_string(),
-                author: User {
-                    id: "888888888".to_string(),
-                    name: Some("Original User".to_string()),
-                    username: "originaluser".to_string(),
-                    profile_image_url: None,
-                    description: None,
-                    url: None,
-                    entities: None,
-                },
-                referenced_tweets: None,
-                attachments: None,
-                created_at: "2023-01-01T00:00:00Z".to_string(),
-                entities: None,
-                includes: None,
-                author_id: Some("888888888".to_string()),
-                note_tweet: None,
-            })),
-        }]);
-
-        let content = format_tweet_as_nostr_content(&tweet, &[]);
-
-        let expected = "🔁 @testuser retweeted @originaluser:\nOriginal tweet content\nhttps://twitter.com/i/status/111111111\n\nOriginal tweet: https://twitter.com/i/status/123456789";
-
-        pretty_assertions::assert_eq!(content, expected);
-    }
-
-    #[test]
-    fn test_format_reply() {
-        let mut tweet = create_test_tweet();
-        tweet.text = "This is a reply to another tweet".to_string();
-        tweet.referenced_tweets = Some(vec![ReferencedTweet {
-            id: "222222222".to_string(),
-            type_field: "replied_to".to_string(),
-            data: Some(Box::new(Tweet {
-                id: "222222222".to_string(),
-                text: "Original tweet I'm replying to".to_string(),
-                author: User {
-                    id: "777777777".to_string(),
-                    name: Some("Original Author".to_string()),
-                    username: "originalauthor".to_string(),
-                    profile_image_url: None,
-                    description: None,
-                    url: None,
-                    entities: None,
-                },
-                referenced_tweets: None,
-                attachments: None,
-                created_at: "2023-01-01T00:00:00Z".to_string(),
-                entities: None,
-                includes: None,
-                author_id: Some("777777777".to_string()),
-                note_tweet: None,
-            })),
-        }]);
-
-        let content = format_tweet_as_nostr_content(&tweet, &[]);
-
-        assert!(content.contains("🐦 @testuser:"));
-        assert!(content.contains("This is a reply to another tweet"));
-        assert!(content.contains("↩️ Reply to @originalauthor:"));
-        assert!(content.contains("Original tweet I'm replying to"));
-    }
-
-    #[test]
-    fn test_format_quoted_tweet() {
-        let mut tweet = create_test_tweet();
-        tweet.text = "Check out this tweet!".to_string();
-        tweet.referenced_tweets = Some(vec![ReferencedTweet {
-            id: "333333333".to_string(),
-            type_field: "quoted".to_string(),
-            data: Some(Box::new(Tweet {
-                id: "333333333".to_string(),
-                text: "The quoted tweet content".to_string(),
-                author: User {
-                    id: "666666666".to_string(),
-                    name: Some("Quoted Author".to_string()),
-                    username: "quotedauthor".to_string(),
-                    profile_image_url: None,
-                    description: None,
-                    url: None,
-                    entities: None,
-                },
-                referenced_tweets: None,
-                attachments: None,
-                created_at: "2023-01-01T00:00:00Z".to_string(),
-                entities: None,
-                includes: None,
-                author_id: Some("666666666".to_string()),
-                note_tweet: None,
-            })),
-        }]);
-
-        let content = format_tweet_as_nostr_content(&tweet, &[]);
-
-        let expected = "🐦 @testuser: Check out this tweet!\n\n💬 Quote of @quotedauthor:\nThe quoted tweet content\nhttps://twitter.com/i/status/333333333\n\nOriginal tweet: https://twitter.com/i/status/123456789";
-
-        pretty_assertions::assert_eq!(content, expected);
-    }
-
-    #[test]
-    fn test_format_note_tweet() {
-        let mut tweet = create_test_tweet();
-        tweet.text = "This is a preview...".to_string();
-        let long_text =
-            "This is a very long tweet that exceeds the normal character limit. ".repeat(10);
-        tweet.note_tweet = Some(NoteTweet {
-            text: long_text.clone(),
-        });
-
-        let content = format_tweet_as_nostr_content(&tweet, &[]);
-
-        let expected = format!(
-            "🐦 @testuser: {long_text}\n\n\nOriginal tweet: https://twitter.com/i/status/123456789"
-        );
-
-        pretty_assertions::assert_eq!(content, expected);
     }
 
     #[test]

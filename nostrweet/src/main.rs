@@ -440,7 +440,10 @@ async fn main() -> Result<()> {
         Commands::UpdateRelayList { relays } => {
             commands::update_relay_list::execute(&relays, args.mnemonic.as_deref()).await?
         }
-        Commands::ShowTweet(cmd) => cmd.execute(&data_dir, bearer_token.as_deref()).await?,
+        Commands::ShowTweet(cmd) => {
+            cmd.execute(&data_dir, bearer_token.as_deref(), args.mnemonic.as_deref())
+                .await?
+        }
         Commands::Daemon {
             users,
             relays,

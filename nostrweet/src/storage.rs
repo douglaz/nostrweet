@@ -19,16 +19,15 @@ pub fn find_existing_tweet_json(tweet_id: &str, data_dir: &Path) -> Option<PathB
     if let Ok(entries) = fs::read_dir(data_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if let Some(extension) = path.extension() {
-                if extension == "json" {
-                    if let Some(filename) = path.file_name() {
-                        let filename = filename.to_string_lossy();
-                        // Check if this JSON file contains our tweet ID
-                        if filename.contains(tweet_id) && path.is_file() {
-                            // Found an existing JSON file for this tweet
-                            return Some(path);
-                        }
-                    }
+            if let Some(extension) = path.extension()
+                && extension == "json"
+                && let Some(filename) = path.file_name()
+            {
+                let filename = filename.to_string_lossy();
+                // Check if this JSON file contains our tweet ID
+                if filename.contains(tweet_id) && path.is_file() {
+                    // Found an existing JSON file for this tweet
+                    return Some(path);
                 }
             }
         }
@@ -152,17 +151,16 @@ pub fn find_latest_user_profile(username: &str, data_dir: &Path) -> Result<Optio
     let mut latest_file: Option<(chrono::NaiveDateTime, PathBuf)> = None;
 
     for path in glob::glob(&glob_pattern)?.flatten() {
-        if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-            if let Some(timestamp_str) = filename.split('_').next() {
-                if let Ok(timestamp) = parse_compact_datetime(timestamp_str) {
-                    if let Some((latest_timestamp, _)) = &latest_file {
-                        if timestamp > *latest_timestamp {
-                            latest_file = Some((timestamp, path));
-                        }
-                    } else {
-                        latest_file = Some((timestamp, path));
-                    }
+        if let Some(filename) = path.file_name().and_then(|n| n.to_str())
+            && let Some(timestamp_str) = filename.split('_').next()
+            && let Ok(timestamp) = parse_compact_datetime(timestamp_str)
+        {
+            if let Some((latest_timestamp, _)) = &latest_file {
+                if timestamp > *latest_timestamp {
+                    latest_file = Some((timestamp, path));
                 }
+            } else {
+                latest_file = Some((timestamp, path));
             }
         }
     }
