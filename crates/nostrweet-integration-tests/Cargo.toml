@@ -19,6 +19,8 @@ serde_json.workspace = true
 tempfile.workspace = true
 nostr-sdk.workspace = true
 hex.workspace = true
+nostrweet-core = { path = "../nostrweet-core" }
+nostrweet-storage = { path = "../nostrweet-storage" }
 
 # Additional dependencies for integration tests
 toml = "0.8"

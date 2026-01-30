@@ -74,12 +74,12 @@ jobs:
                   <h2>🏗️ Architecture Overview</h2>
                   <p>The project is organized into several key modules:</p>
                   <ul>
-                      <li><code>commands/</code> - All CLI command implementations</li>
-                      <li><code>twitter.rs</code> - Twitter API client and data structures</li>
-                      <li><code>nostr.rs</code> - Nostr protocol implementation and event formatting</li>
-                      <li><code>media.rs</code> - Media downloading and URL extraction</li>
-                      <li><code>storage.rs</code> - Local caching and file management</li>
-                      <li><code>keys.rs</code> - Nostr key management</li>
+                      <li><code>crates/nostrweet-cli</code> - CLI command handling and formatting</li>
+                      <li><code>crates/nostrweet-core</code> - Shared models and parsing helpers</li>
+                      <li><code>crates/nostrweet-twitter</code> - Twitter API client and DTO conversions</li>
+                      <li><code>crates/nostrweet-nostr</code> - Nostr relay publishing</li>
+                      <li><code>crates/nostrweet-storage</code> - Local caching and file management</li>
+                      <li><code>crates/nostrweet-blossom</code> - Blossom media uploads</li>
                   </ul>
               </div>
               
@@ -96,8 +96,8 @@ jobs:
               <div class="section">
                   <h2>🧪 Quality Assurance</h2>
                   <ul>
-                      <li>✅ 70 unit tests covering core functionality</li>
-                      <li>✅ 22 integration tests with real tweet data</li>
+                      <li>✅ Unit tests covering core functionality</li>
+                      <li>✅ Integration tests with real tweet data</li>
                       <li>✅ Comprehensive error handling with <code>anyhow</code></li>
                       <li>✅ Clippy compliance with strict warnings</li>
                       <li>✅ Pretty assertions for detailed test output</li>

@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use nostr_sdk::Event;
 use nostr_sdk::prelude::*;
-use serde_json::json;
+use nostrweet_core::{
+    CreatedAt, Entities, HttpUrl, ReferenceKind, ReferencedTweet, Tweet, TweetId, TweetText,
+    UrlEntity, User, UserId, Username,
+};
 use std::fs;
 use tracing::{debug, info};
 
@@ -11,38 +14,28 @@ use crate::test_runner::TestContext;
 pub async fn run(ctx: &TestContext) -> Result<()> {
     info!("Testing Nostr posting functionality");
 
-    // Create a test tweet JSON file with a numeric ID matching Tweet struct
-    let test_tweet = json!({
-        "id": "123456789",
-        "text": "This is a test tweet with a link https://example.com",
-        "author": {
-            "id": "987654321",
-            "username": "testuser",
-            "name": "Test User",
-            "profile_image_url": "https://example.com/avatar.jpg"
-        },
-        "author_id": "987654321",
-        "created_at": "2024-01-01T00:00:00Z",
-        "entities": {
-            "urls": [
-                {
-                    "display_url": "example.com",
-                    "expanded_url": "https://example.com",
-                    "url": "https://t.co/abc123"
-                }
-            ]
-        },
-        "attachments": null,
-        "referenced_tweets": null,
-        "includes": null
-    });
+    let author = build_test_user()?;
 
-    // Save test tweet to file
-    let tweet_file = ctx
-        .output_dir
-        .join("20240101_000000_testuser_123456789.json");
-    fs::write(&tweet_file, serde_json::to_string_pretty(&test_tweet)?)
-        .context("Failed to write test tweet file")?;
+    let base_tweet = Tweet::builder()
+        .id(TweetId::parse("123456789")?)
+        .text(TweetText::parse(
+            "This is a test tweet with a link https://example.com",
+        )?)
+        .author(author.clone())
+        .created_at(CreatedAt::parse("2024-01-01T00:00:00Z")?)
+        .entities(Entities {
+            urls: vec![UrlEntity {
+                url: HttpUrl::parse("https://t.co/abc123")?,
+                expanded_url: Some(HttpUrl::parse("https://example.com")?),
+                display_url: "example.com".to_string(),
+            }],
+            mentions: Vec::new(),
+            hashtags: Vec::new(),
+        })
+        .author_id(author.id.clone())
+        .build();
+
+    write_tweet(ctx, &base_tweet, "20240101_000000_testuser_123456789.json")?;
 
     // Test 1: Post regular tweet
     info!("Testing regular tweet post");
@@ -100,33 +93,20 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     info!("✅ Regular tweet posted successfully");
 
     // Test 2: Create and post a reply tweet
-    let reply_tweet = json!({
-        "id": "987654321",
-        "text": "This is a reply to the previous tweet",
-        "author": {
-            "id": "987654321",
-            "username": "testuser",
-            "name": "Test User",
-            "profile_image_url": "https://example.com/avatar.jpg"
-        },
-        "author_id": "987654321",
-        "created_at": "2024-01-01T00:05:00Z",
-        "referenced_tweets": [
-            {
-                "type": "replied_to",
-                "id": "123456789"
-            }
-        ],
-        "entities": null,
-        "attachments": null,
-        "includes": null
-    });
+    let reply_tweet = Tweet::builder()
+        .id(TweetId::parse("987654321")?)
+        .text(TweetText::parse("This is a reply to the previous tweet")?)
+        .author(author.clone())
+        .created_at(CreatedAt::parse("2024-01-01T00:05:00Z")?)
+        .referenced_tweets(vec![ReferencedTweet {
+            id: base_tweet.id.clone(),
+            kind: ReferenceKind::RepliedTo,
+            data: Some(Box::new(base_tweet.clone())),
+        }])
+        .author_id(author.id.clone())
+        .build();
 
-    let reply_file = ctx
-        .output_dir
-        .join("20240101_000500_testuser_987654321.json");
-    fs::write(&reply_file, serde_json::to_string_pretty(&reply_tweet)?)
-        .context("Failed to write reply tweet file")?;
+    write_tweet(ctx, &reply_tweet, "20240101_000500_testuser_987654321.json")?;
 
     info!("Testing reply tweet post");
     ctx.run_nostrweet(&["post-tweet-to-nostr", "--force", "987654321"])
@@ -160,39 +140,20 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     info!("✅ Reply tweet posted successfully");
 
     // Test 3: Test quote tweet
-    let quote_tweet = json!({
-        "id": "555444333",
-        "text": "Check out this tweet!",
-        "author": {
-            "id": "987654321",
-            "username": "testuser",
-            "name": "Test User",
-            "profile_image_url": "https://example.com/avatar.jpg"
-        },
-        "author_id": "987654321",
-        "created_at": "2024-01-01T00:10:00Z",
-        "referenced_tweets": [
-            {
-                "type": "quoted",
-                "id": "123456789",
-                "text": "This is a test tweet with a link https://example.com",
-                "author": {
-                    "id": "987654321",
-                    "username": "testuser",
-                    "name": "Test User"
-                }
-            }
-        ],
-        "entities": null,
-        "attachments": null,
-        "includes": null
-    });
+    let quote_tweet = Tweet::builder()
+        .id(TweetId::parse("555444333")?)
+        .text(TweetText::parse("Check out this tweet!")?)
+        .author(author)
+        .created_at(CreatedAt::parse("2024-01-01T00:10:00Z")?)
+        .referenced_tweets(vec![ReferencedTweet {
+            id: base_tweet.id.clone(),
+            kind: ReferenceKind::Quoted,
+            data: Some(Box::new(base_tweet)),
+        }])
+        .author_id(UserId::parse("987654321")?)
+        .build();
 
-    let quote_file = ctx
-        .output_dir
-        .join("20240101_001000_testuser_555444333.json");
-    fs::write(&quote_file, serde_json::to_string_pretty(&quote_tweet)?)
-        .context("Failed to write quote tweet file")?;
+    write_tweet(ctx, &quote_tweet, "20240101_001000_testuser_555444333.json")?;
 
     info!("Testing quote tweet post");
     ctx.run_nostrweet(&["post-tweet-to-nostr", "--force", "555444333"])
@@ -201,5 +162,24 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
 
     info!("✅ All Nostr posting tests completed successfully");
 
+    Ok(())
+}
+
+fn build_test_user() -> Result<User> {
+    Ok(User {
+        id: UserId::parse("987654321")?,
+        name: Some("Test User".to_string()),
+        username: Username::parse("testuser")?,
+        profile_image_url: Some(HttpUrl::parse("https://example.com/avatar.jpg")?),
+        description: None,
+        url: None,
+        entities: None,
+    })
+}
+
+fn write_tweet(ctx: &TestContext, tweet: &Tweet, filename: &str) -> Result<()> {
+    let tweet_file = ctx.output_dir.join(filename);
+    fs::write(&tweet_file, serde_json::to_string_pretty(tweet)?)
+        .context("Failed to write test tweet file")?;
     Ok(())
 }

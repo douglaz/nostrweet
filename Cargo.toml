@@ -6,6 +6,7 @@ members = [
     "crates/nostrweet-nostr",
     "crates/nostrweet-blossom",
     "crates/nostrweet-cli",
+    "crates/nostrweet-integration-tests",
 ]
 resolver = "2"
 

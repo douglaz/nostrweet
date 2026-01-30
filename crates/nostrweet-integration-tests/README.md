@@ -42,7 +42,7 @@ just integration-cleanup
 ### Direct execution
 
 ```bash
-cd nostrweet-integration-tests
+cd crates/nostrweet-integration-tests
 
 # Run all tests
 cargo run -- run-all
@@ -84,6 +84,6 @@ Tests are located in `src/tests/` directory. Each test module exports a single `
 
 - Ensure you're in the Nix development shell: `nix develop`
 - Check that `nostr-rs-relay` is available: `which nostr-rs-relay`
-- Build the main binary first: `cargo build -p nostrweet`
+- Build the main binary first: `cargo build -p nostrweet-cli`
 - Use `--verbose` flag for detailed logging
 - Use `--keep-relay` to inspect relay state after tests

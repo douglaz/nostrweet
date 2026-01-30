@@ -38,7 +38,8 @@ impl TestContext {
         let mut cmd = Command::new(&self.nostrweet_binary);
 
         // Add common environment variables
-        cmd.env("NOSTRWEET_OUTPUT_DIR", &self.output_dir)
+        cmd.env("NOSTRWEET_DATA_DIR", &self.output_dir)
+            .env("NOSTRWEET_OUTPUT_DIR", &self.output_dir)
             .env("NOSTRWEET_PRIVATE_KEY", &self.private_key)
             .env("NOSTRWEET_RELAYS", &self.relay_url)
             .env("TWITTER_BEARER_TOKEN", &self.twitter_token)
@@ -97,7 +98,8 @@ impl TestContext {
         let mut cmd = Command::new(&self.nostrweet_binary);
 
         // Add common environment variables
-        cmd.env("NOSTRWEET_OUTPUT_DIR", &self.output_dir)
+        cmd.env("NOSTRWEET_DATA_DIR", &self.output_dir)
+            .env("NOSTRWEET_OUTPUT_DIR", &self.output_dir)
             .env("NOSTRWEET_PRIVATE_KEY", &self.private_key)
             .env("NOSTRWEET_RELAYS", &self.relay_url)
             .env("TWITTER_BEARER_TOKEN", &self.twitter_token)
@@ -358,17 +360,10 @@ pub async fn cleanup() -> Result<()> {
 
 /// Find the nostrweet binary
 fn find_nostrweet_binary() -> Result<PathBuf> {
-    // First, check if we can find it in the target directory
-    let workspace_root = std::env::current_dir()?
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Failed to find workspace root"))?
-        .to_path_buf();
-
+    let workspace_root = find_workspace_root()?;
     let candidates = vec![
         workspace_root.join("target/debug/nostrweet"),
         workspace_root.join("target/release/nostrweet"),
-        workspace_root.join("nostrweet/target/debug/nostrweet"),
-        workspace_root.join("nostrweet/target/release/nostrweet"),
     ];
 
     for candidate in candidates {
@@ -392,4 +387,27 @@ fn find_nostrweet_binary() -> Result<PathBuf> {
     }
 
     bail!("Could not find nostrweet binary. Please build it first with 'cargo build'");
+}
+
+fn find_workspace_root() -> Result<PathBuf> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut current = manifest_dir.as_path();
+
+    for _ in 0..6 {
+        let cargo_toml = current.join("Cargo.toml");
+        if cargo_toml.exists() {
+            if let Ok(contents) = std::fs::read_to_string(&cargo_toml) {
+                if contents.contains("[workspace]") {
+                    return Ok(current.to_path_buf());
+                }
+            }
+        }
+
+        let Some(parent) = current.parent() else {
+            break;
+        };
+        current = parent;
+    }
+
+    bail!("Failed to locate workspace root from CARGO_MANIFEST_DIR");
 }

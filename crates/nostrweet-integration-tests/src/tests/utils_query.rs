@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
 use nostr_sdk::prelude::*;
+use nostrweet_core::{MnemonicPhrase, StoragePort, Username, derive_nostr_secret_key};
+use nostrweet_storage::FileStorage;
 use serde_json::Value;
 use tracing::{debug, info};
 
@@ -125,8 +127,16 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
     // Step 6: Test query with author filter
     info!("Testing query-events with author filter");
 
-    // Get our test key's public key
-    let keys = Keys::parse(&ctx.private_key)?;
+    let storage = FileStorage::new(&ctx.output_dir)?;
+    let username = Username::parse("douglaz")?;
+    let profile = storage
+        .load_latest_user_profile(&username)
+        .await?
+        .context("Expected cached profile for author filter")?;
+
+    let mnemonic = MnemonicPhrase::parse(&ctx.mnemonic)?;
+    let secret = derive_nostr_secret_key(&profile.id, &mnemonic, None)?;
+    let keys = Keys::parse(&secret.to_hex())?;
     let npub = keys.public_key().to_bech32()?;
 
     let author_output = ctx
