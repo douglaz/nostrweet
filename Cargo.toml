@@ -1,7 +1,11 @@
 [workspace]
 members = [
-    "nostrweet",
-    "nostrweet-integration-tests",
+    "crates/nostrweet-core",
+    "crates/nostrweet-storage",
+    "crates/nostrweet-twitter",
+    "crates/nostrweet-nostr",
+    "crates/nostrweet-blossom",
+    "crates/nostrweet-cli",
 ]
 resolver = "2"
 
@@ -21,3 +25,9 @@ clap = { version = "4.4", features = ["derive", "env"] }
 tempfile = "3.8"
 nostr-sdk = { git = "https://github.com/rust-nostr/nostr", branch = "master", default-features = false, features = ["all-nips"] }
 hex = "0.4"
+regex = "1.10"
+url = "2.5"
+html-escape = "0.2"
+time = { version = "0.3", features = ["formatting", "parsing"] }
+bip39 = "2.0"
+sha2 = "0.10"
