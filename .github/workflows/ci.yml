@@ -61,9 +61,9 @@ jobs:
         run: nix develop -c cargo test --lib
         timeout-minutes: 5
 
-      - name: Run integration tests
+      - name: Run workspace tests (excluding network integration crate)
         # Run tests sequentially with --test-threads=1 to prevent conflicts
-        run: nix develop -c cargo test --test '*' -- --test-threads=1
+        run: nix develop -c cargo test --workspace --tests --exclude nostrweet-integration-tests -- --test-threads=1
         timeout-minutes: 10
 
       - name: Run doc tests
@@ -131,7 +131,7 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@v9
 
       - name: Install cargo-audit
-        run: nix develop -c cargo install cargo-audit
+        run: nix develop -c cargo install --locked cargo-audit
 
       - name: Run security audit
         run: nix develop -c cargo audit
