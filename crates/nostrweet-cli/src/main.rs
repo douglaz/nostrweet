@@ -1,16 +1,20 @@
-use anyhow::{Context, Result, bail};
+use ::time::{OffsetDateTime, format_description};
+use anyhow::{Context, Result, bail, ensure};
+use backoff::ExponentialBackoff;
+use backoff::future::retry;
 use clap::{Args, Parser, Subcommand};
+use dotenvy::dotenv;
 use nostr_sdk::nips::nip65::RelayMetadata;
 use nostr_sdk::{
-    Client as NostrClient, EventBuilder, Filter, FromBech32, JsonUtil, Keys, Kind, Metadata, Tag,
-    Timestamp, ToBech32,
+    Alphabet, Client as NostrClient, EventBuilder, Filter, FromBech32, JsonUtil, Keys, Kind,
+    Metadata, SingleLetterTag, Tag, Timestamp, ToBech32,
 };
 use nostrweet_blossom::BlossomClient;
 use nostrweet_core::{BlossomPort, TwitterPort};
 use nostrweet_core::{
     HttpUrl, Media, MediaAsset, MediaKind, MediaVariant, MnemonicPhrase, NostrEventDraft,
     NostrEventId, NostrEventInfo, NostrPubkey, NostrTag, StoragePort, Tweet, TweetId,
-    UnixTimestamp, UserId, UserTweetsQuery, Username, decode_html_entities,
+    UnixTimestamp, User, UserId, UserTweetsQuery, Username, decode_html_entities,
     derive_nostr_secret_key, expand_urls_in_text, extract_media_urls,
 };
 use nostrweet_storage::FileStorage;
@@ -19,8 +23,12 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
-use time::OffsetDateTime;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::{Mutex, RwLock, oneshot};
+use tokio::time;
+use tracing::{debug, error, info, trace, warn};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -308,8 +316,26 @@ struct ShowTweetCommand {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv().ok();
+    init_logging();
     let cli = Cli::parse();
+    if cli.verbose {
+        debug!("Verbose mode enabled");
+    }
     run(cli).await
+}
+
+fn init_logging() {
+    let filter = if std::env::var("RUST_LOG").is_ok() {
+        EnvFilter::from_default_env()
+    } else {
+        EnvFilter::new("info")
+    };
+
+    tracing_subscriber::registry()
+        .with(fmt::layer().with_writer(std::io::stderr))
+        .with(filter)
+        .init();
 }
 
 async fn run(cli: Cli) -> Result<()> {
@@ -563,8 +589,7 @@ fn format_timestamp(timestamp: UnixTimestamp) -> String {
     let Ok(parsed) = OffsetDateTime::from_unix_timestamp(raw) else {
         return "Unknown".to_string();
     };
-    let Ok(format) =
-        time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")
+    let Ok(format) = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")
     else {
         return "Unknown".to_string();
     };
@@ -1393,6 +1418,43 @@ async fn build_nostr_client(keys: &Keys, relays: &[String]) -> Result<NostrClien
     Ok(client)
 }
 
+async fn find_existing_event(
+    client: &NostrClient,
+    tweet_id: &TweetId,
+    keys: &Keys,
+) -> Result<Option<nostr_sdk::Event>> {
+    let pubkey = keys.public_key();
+    let twitter_url = build_twitter_status_url(tweet_id);
+    let filter = Filter::new()
+        .author(pubkey)
+        .kind(Kind::TextNote)
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::R), twitter_url)
+        .limit(10);
+
+    match client.fetch_events(filter, Duration::from_secs(10)).await {
+        Ok(events) => Ok(events.into_iter().next()),
+        Err(err) => {
+            warn!("Failed to check existing events for {tweet_id}: {err}");
+            Ok(None)
+        }
+    }
+}
+
+fn save_nostr_event_json(data_dir: &Path, event: &nostr_sdk::Event) -> Result<()> {
+    let dir = data_dir.join("nostr_events");
+    std::fs::create_dir_all(&dir).with_context(|| {
+        format!(
+            "Failed to create nostr_events directory at {}",
+            dir.display()
+        )
+    })?;
+    let path = dir.join(format!("{}.json", event.id.to_hex()));
+    let json = serde_json::to_string_pretty(event).context("Failed to serialize Nostr event")?;
+    std::fs::write(&path, json)
+        .with_context(|| format!("Failed to write Nostr event to {}", path.display()))?;
+    Ok(())
+}
+
 fn parse_relay_urls(relays: &[String]) -> Result<Vec<nostrweet_core::RelayUrl>> {
     relays
         .iter()
@@ -1401,6 +1463,217 @@ fn parse_relay_urls(relays: &[String]) -> Result<Vec<nostrweet_core::RelayUrl>> 
                 .with_context(|| format!("Invalid relay URL: {relay}"))
         })
         .collect()
+}
+
+fn profile_disclaimer(username: &Username) -> String {
+    format!(
+        "\n\nThis account is a mirror of https://x.com/{username}\n\nMirror created using nostrweet: https://github.com/douglaz/nostrweet",
+        username = username.as_str()
+    )
+}
+
+fn build_profile_metadata(user: &User, username: &Username) -> Metadata {
+    let mut metadata = Metadata::new();
+
+    if let Some(name) = &user.name {
+        metadata = metadata.name(name);
+    }
+
+    let disclaimer = profile_disclaimer(username);
+    let about = match &user.description {
+        Some(desc) => format!("{desc}{disclaimer}"),
+        None => disclaimer,
+    };
+    metadata = metadata.about(&about);
+
+    if let Some(url) = &user.profile_image_url {
+        if let Ok(parsed) = url.as_str().parse() {
+            metadata = metadata.picture(parsed);
+        }
+    }
+    if let Some(url) = &user.url {
+        if let Ok(parsed) = url.as_str().parse() {
+            metadata = metadata.website(parsed);
+        }
+    }
+
+    metadata
+}
+
+async fn post_single_profile(
+    username: &Username,
+    client: &NostrClient,
+    data_dir: &Path,
+    mnemonic: &MnemonicPhrase,
+) -> Result<nostr_sdk::EventId> {
+    let storage = FileStorage::new(data_dir)?;
+    let Some(user) = storage.load_latest_user_profile(username).await? else {
+        bail!(
+            "No profile found for user '@{username}'",
+            username = username.as_str()
+        );
+    };
+
+    let keys = derive_keys_for_user(&user.id, mnemonic)?;
+    let metadata = build_profile_metadata(&user, username);
+
+    let event = EventBuilder::metadata(&metadata)
+        .sign(&keys)
+        .await
+        .context("Failed to sign metadata event")?;
+
+    save_nostr_event_json(data_dir, &event)?;
+
+    let output = client.send_event(&event).await.with_context(|| {
+        format!(
+            "Failed to publish profile for @{username}",
+            username = username.as_str()
+        )
+    })?;
+    Ok(*output.id())
+}
+
+async fn post_relay_list_for_user(
+    username: &Username,
+    client: &NostrClient,
+    data_dir: &Path,
+    mnemonic: &MnemonicPhrase,
+    relays: &[String],
+) -> Result<()> {
+    let storage = FileStorage::new(data_dir)?;
+    let Some(user) = storage.load_latest_user_profile(username).await? else {
+        bail!(
+            "No profile found for user '@{username}'",
+            username = username.as_str()
+        );
+    };
+
+    let keys = derive_keys_for_user(&user.id, mnemonic)?;
+    let relay_list: Vec<(nostr_sdk::RelayUrl, Option<RelayMetadata>)> = relays
+        .iter()
+        .filter_map(|relay| match nostr_sdk::RelayUrl::parse(relay) {
+            Ok(url) => Some((url, None)),
+            Err(_) => None,
+        })
+        .collect();
+
+    let event = EventBuilder::relay_list(relay_list)
+        .sign(&keys)
+        .await
+        .context("Failed to sign relay list event")?;
+    let _ = client
+        .send_event(&event)
+        .await
+        .context("Failed to publish relay list event")?;
+    Ok(())
+}
+
+async fn post_user_profile_with_relay_list(
+    username: &Username,
+    client: &NostrClient,
+    data_dir: &Path,
+    mnemonic: &MnemonicPhrase,
+    relays: &[String],
+) -> Result<()> {
+    let event_id = post_single_profile(username, client, data_dir, mnemonic).await?;
+    debug!(
+        "Posted profile for @{username} with event ID {event_id}",
+        username = username.as_str()
+    );
+    post_relay_list_for_user(username, client, data_dir, mnemonic, relays).await?;
+    Ok(())
+}
+
+async fn check_profile_exists(
+    username: &Username,
+    client: &NostrClient,
+    data_dir: &Path,
+    mnemonic: &MnemonicPhrase,
+) -> Result<bool> {
+    let storage = FileStorage::new(data_dir)?;
+    let Some(user) = storage.load_latest_user_profile(username).await? else {
+        return Ok(false);
+    };
+
+    let keys = derive_keys_for_user(&user.id, mnemonic)?;
+    let pubkey = keys.public_key();
+    let filter = Filter::new().author(pubkey).kind(Kind::Metadata).limit(1);
+
+    let events = client.fetch_events(filter, Duration::from_secs(10)).await?;
+    Ok(!events.is_empty())
+}
+
+async fn filter_profiles_to_post(
+    usernames: HashSet<String>,
+    client: &NostrClient,
+    data_dir: &Path,
+    force: bool,
+    mnemonic: &MnemonicPhrase,
+) -> Result<HashSet<String>> {
+    if force {
+        return Ok(usernames);
+    }
+
+    let storage = FileStorage::new(data_dir)?;
+    let mut profiles_to_post = HashSet::new();
+
+    for username in usernames {
+        let Ok(username_parsed) = Username::parse(&username) else {
+            continue;
+        };
+        let Some(user) = storage.load_latest_user_profile(&username_parsed).await? else {
+            continue;
+        };
+
+        let keys = derive_keys_for_user(&user.id, mnemonic)?;
+        let pubkey = keys.public_key();
+        let filter = Filter::new().author(pubkey).kind(Kind::Metadata).limit(1);
+
+        let has_existing_profile = match client.fetch_events(filter, Duration::from_secs(10)).await
+        {
+            Ok(events) => !events.is_empty(),
+            Err(_) => false,
+        };
+
+        if !has_existing_profile {
+            profiles_to_post.insert(username);
+        }
+    }
+
+    Ok(profiles_to_post)
+}
+
+async fn post_referenced_profiles(
+    usernames: &HashSet<String>,
+    client: &NostrClient,
+    data_dir: &Path,
+    mnemonic: &MnemonicPhrase,
+) -> Result<usize> {
+    if usernames.is_empty() {
+        return Ok(0);
+    }
+
+    let mut posted_count = 0;
+    let mut failed_count = 0;
+
+    for username in usernames {
+        let Ok(username_parsed) = Username::parse(username) else {
+            continue;
+        };
+        match post_single_profile(&username_parsed, client, data_dir, mnemonic).await {
+            Ok(_) => posted_count += 1,
+            Err(err) => {
+                debug!("Failed to post profile for @{username}: {err}");
+                failed_count += 1;
+            }
+        }
+    }
+
+    if failed_count > 0 {
+        debug!("Posted {posted_count} profiles, {failed_count} failed");
+    }
+
+    Ok(posted_count)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1449,44 +1722,109 @@ async fn post_tweet_to_nostr(
     };
 
     let mnemonic = MnemonicPhrase::parse(mnemonic)?;
+    let keys = derive_keys_for_user(&tweet.author.id, &mnemonic)?;
+    let client = build_nostr_client(&keys, relays).await?;
+
     let mut resolver = NostrLinkResolver::new(Some(data_dir.to_path_buf()), Some(mnemonic.clone()));
     let (content, mentioned_pubkeys) =
         format_tweet_as_nostr_content_with_mentions(&tweet, &content_media_urls, &mut resolver)
             .await?;
 
-    let tags = build_nostr_event_tags(
-        &tweet.id,
-        &original_media_urls,
-        &blossom_urls,
-        &mentioned_pubkeys,
-    )?;
-    let created_at = tweet.created_at.unix_timestamp()?;
-    let draft = NostrEventDraft {
-        content,
-        tags,
-        created_at: Some(created_at),
+    let existing_event = find_existing_event(&client, &tweet_id, &keys).await?;
+    let (event_id_hex, event_json) = if let Some(existing) = existing_event {
+        if force {
+            debug!("Existing event found for {tweet_id}, will overwrite due to --force");
+            let tags = build_nostr_event_tags(
+                &tweet.id,
+                &original_media_urls,
+                &blossom_urls,
+                &mentioned_pubkeys,
+            )?;
+            let created_at = tweet.created_at.unix_timestamp()?;
+            let draft = NostrEventDraft {
+                content,
+                tags,
+                created_at: Some(created_at),
+            };
+            let event = build_event_from_draft(&draft, &keys).await?;
+            save_nostr_event_json(data_dir, &event)?;
+            let _ = client
+                .send_event(&event)
+                .await
+                .context("Failed to publish Nostr event")?;
+            (
+                event.id.to_hex(),
+                Some(
+                    serde_json::to_string_pretty(&event)
+                        .context("Failed to serialize Nostr event to JSON")?,
+                ),
+            )
+        } else {
+            (
+                existing.id.to_hex(),
+                Some(
+                    serde_json::to_string_pretty(&existing)
+                        .context("Failed to serialize existing Nostr event to JSON")?,
+                ),
+            )
+        }
+    } else {
+        let tags = build_nostr_event_tags(
+            &tweet.id,
+            &original_media_urls,
+            &blossom_urls,
+            &mentioned_pubkeys,
+        )?;
+        let created_at = tweet.created_at.unix_timestamp()?;
+        let draft = NostrEventDraft {
+            content,
+            tags,
+            created_at: Some(created_at),
+        };
+        let event = build_event_from_draft(&draft, &keys).await?;
+        save_nostr_event_json(data_dir, &event)?;
+        let _ = client
+            .send_event(&event)
+            .await
+            .context("Failed to publish Nostr event")?;
+        (
+            event.id.to_hex(),
+            Some(
+                serde_json::to_string_pretty(&event)
+                    .context("Failed to serialize Nostr event to JSON")?,
+            ),
+        )
     };
 
-    let keys = derive_keys_for_user(&tweet.author.id, &mnemonic)?;
-    let event = build_event_from_draft(&draft, &keys).await?;
-    let client = build_nostr_client(&keys, relays).await?;
-    let output = client
-        .send_event(&event)
-        .await
-        .context("Failed to publish Nostr event")?;
-
-    let event_id_hex = output.val.to_hex();
+    let created_at = tweet.created_at.unix_timestamp()?;
     let pubkey_hex = keys.public_key().to_hex();
+    let mut info_media_urls = original_media_urls.clone();
+    if !blossom_urls.is_empty() {
+        info_media_urls.extend(blossom_urls.clone());
+    }
     let info = NostrEventInfo {
         tweet_id: tweet.id.clone(),
         event_id: NostrEventId::parse(&event_id_hex)?,
         pubkey: NostrPubkey::parse(&pubkey_hex)?,
         created_at,
-        media_urls: content_media_urls,
+        media_urls: info_media_urls,
         relays: parse_relay_urls(relays)?,
-        event_json: Some(event.as_json()),
+        event_json,
     };
     storage.save_nostr_event_info(&info).await?;
+
+    if !skip_profiles {
+        let referenced_users = collect_usernames_from_tweet(&tweet);
+        if !referenced_users.is_empty() {
+            let profiles_to_post =
+                filter_profiles_to_post(referenced_users, &client, data_dir, force, &mnemonic)
+                    .await?;
+            if !profiles_to_post.is_empty() {
+                let _ = post_referenced_profiles(&profiles_to_post, &client, data_dir, &mnemonic)
+                    .await?;
+            }
+        }
+    }
 
     Ok(())
 }
@@ -1504,12 +1842,14 @@ async fn post_user_to_nostr(
     let storage = FileStorage::new(data_dir)?;
     let summaries = storage.list_tweets().await?;
     let mut referenced_users = HashSet::new();
+    let mut matched = 0usize;
 
     for summary in summaries {
         let tweet = summary.tweet;
         if tweet.author.username.normalized() != username.normalized() {
             continue;
         }
+        matched += 1;
         if !skip_profiles {
             referenced_users.extend(collect_usernames_from_tweet(&tweet));
         }
@@ -1526,9 +1866,21 @@ async fn post_user_to_nostr(
         .await?;
     }
 
+    ensure!(
+        matched > 0,
+        "No cached tweets found for user @{username}. Please fetch tweets first using the 'user-tweets' command.",
+        username = username.as_str()
+    );
+
     if !skip_profiles && !referenced_users.is_empty() {
-        for user in referenced_users {
-            let _ = post_profile_to_nostr(data_dir, mnemonic, &user, relays).await;
+        let mnemonic = MnemonicPhrase::parse(mnemonic)?;
+        let ephemeral = Keys::generate();
+        let client = build_nostr_client(&ephemeral, relays).await?;
+        let profiles_to_post =
+            filter_profiles_to_post(referenced_users, &client, data_dir, force, &mnemonic).await?;
+        if !profiles_to_post.is_empty() {
+            let _ =
+                post_referenced_profiles(&profiles_to_post, &client, data_dir, &mnemonic).await?;
         }
     }
 
@@ -1554,28 +1906,12 @@ async fn post_profile_to_nostr(
     let keys = derive_keys_for_user(&user.id, &mnemonic)?;
     let client = build_nostr_client(&keys, relays).await?;
 
-    let mut metadata = Metadata::new();
-    if let Some(name) = &user.name {
-        metadata = metadata.name(name);
-    }
-    if let Some(about) = &user.description {
-        metadata = metadata.about(about);
-    }
-    if let Some(url) = &user.profile_image_url {
-        if let Ok(parsed) = url.as_str().parse() {
-            metadata = metadata.picture(parsed);
-        }
-    }
-    if let Some(url) = &user.url {
-        if let Ok(parsed) = url.as_str().parse() {
-            metadata = metadata.website(parsed);
-        }
-    }
-
+    let metadata = build_profile_metadata(&user, &username);
     let event = EventBuilder::metadata(&metadata)
         .sign(&keys)
         .await
         .context("Failed to sign metadata event")?;
+    save_nostr_event_json(data_dir, &event)?;
     let _ = client
         .send_event(&event)
         .await
@@ -1668,6 +2004,112 @@ async fn show_tweet(
     Ok(())
 }
 
+struct DaemonConfig {
+    users: Vec<String>,
+    relays: Vec<String>,
+    blossom_servers: Vec<String>,
+    poll_interval: u64,
+    data_dir: PathBuf,
+    mnemonic: MnemonicPhrase,
+    bearer_token: String,
+}
+
+#[derive(Clone, Debug)]
+struct UserState {
+    last_poll_time: Option<Instant>,
+    last_success_time: Option<Instant>,
+    last_profile_post_time: Option<Instant>,
+    profile_posted: bool,
+    consecutive_failures: u32,
+    total_tweets_downloaded: u64,
+    total_tweets_posted: u64,
+    is_processing: bool,
+}
+
+impl UserState {
+    fn new() -> Self {
+        Self {
+            last_poll_time: None,
+            last_success_time: None,
+            last_profile_post_time: None,
+            profile_posted: false,
+            consecutive_failures: 0,
+            total_tweets_downloaded: 0,
+            total_tweets_posted: 0,
+            is_processing: false,
+        }
+    }
+
+    fn next_poll_delay(&self, base_interval: u64) -> Duration {
+        if self.consecutive_failures > 0 {
+            let backoff_seconds = base_interval * 2_u64.pow(self.consecutive_failures.min(5));
+            return Duration::from_secs(backoff_seconds.min(3600));
+        }
+
+        Duration::from_secs(base_interval)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct DaemonStats {
+    start_time: Instant,
+    total_polls: u64,
+    successful_polls: u64,
+    failed_polls: u64,
+    total_tweets_downloaded: u64,
+    total_tweets_posted: u64,
+}
+
+#[derive(Clone)]
+struct DaemonState {
+    config: Arc<DaemonConfig>,
+    twitter_client: Arc<TwitterClient>,
+    nostr_client: Arc<NostrClient>,
+    user_states: Arc<RwLock<HashMap<String, UserState>>>,
+    stats: Arc<RwLock<DaemonStats>>,
+    rate_limiter: Arc<Mutex<RateLimiter>>,
+}
+
+struct RateLimiter {
+    requests_per_window: u32,
+    window_duration: Duration,
+    request_times: std::collections::VecDeque<Instant>,
+}
+
+impl RateLimiter {
+    fn new(requests_per_window: u32, window_seconds: u64) -> Self {
+        Self {
+            requests_per_window,
+            window_duration: Duration::from_secs(window_seconds),
+            request_times: std::collections::VecDeque::new(),
+        }
+    }
+
+    async fn wait_if_needed(&mut self) {
+        let cutoff = Instant::now() - self.window_duration;
+        while let Some(&front) = self.request_times.front() {
+            if front < cutoff {
+                self.request_times.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        if self.request_times.len() >= self.requests_per_window as usize
+            && let Some(&oldest) = self.request_times.front()
+        {
+            let wait_until = oldest + self.window_duration;
+            let wait_duration = wait_until.saturating_duration_since(Instant::now());
+            if wait_duration > Duration::ZERO {
+                info!("Rate limit reached, waiting {wait_duration:?}");
+                time::sleep(wait_duration).await;
+            }
+        }
+
+        self.request_times.push_back(Instant::now());
+    }
+}
+
 async fn daemon(
     data_dir: &Path,
     bearer_token: &str,
@@ -1677,49 +2119,593 @@ async fn daemon(
     blossom_servers: &[String],
     poll_interval: u64,
 ) -> Result<()> {
-    let twitter = TwitterClient::new(bearer_token)?;
-    let storage = FileStorage::new(data_dir)?;
-    let interval = Duration::from_secs(poll_interval.max(1));
+    info!(
+        "Starting daemon for {user_count} users with {poll_interval} second base interval",
+        user_count = users.len()
+    );
 
-    loop {
-        for user in users {
-            let Ok(username) = Username::parse(user) else {
-                continue;
-            };
-            let since_id = storage.find_latest_tweet_id_for_user(&username).await?;
-            let query = UserTweetsQuery {
-                count: 20,
-                days: None,
-                since_id,
-            };
-            let mut tweets = twitter.fetch_user_tweets(&username, query).await?;
-            tweets.sort_by_key(|tweet| tweet.created_at.as_str().to_string());
-            for mut tweet in tweets {
-                twitter.enrich_referenced_tweets(&mut tweet).await?;
-                storage.save_tweet(&tweet).await?;
-                let _ = fetch_media_assets(data_dir, &tweet).await?;
-                let _ = post_tweet_to_nostr(
-                    data_dir,
-                    Some(bearer_token),
-                    mnemonic,
-                    tweet.id.as_str(),
-                    relays,
-                    blossom_servers,
-                    false,
-                    false,
-                )
-                .await;
+    let mnemonic = MnemonicPhrase::parse(mnemonic)?;
+    let config = Arc::new(DaemonConfig {
+        users: users.to_vec(),
+        relays: relays.to_vec(),
+        blossom_servers: blossom_servers.to_vec(),
+        poll_interval,
+        data_dir: data_dir.to_path_buf(),
+        mnemonic,
+        bearer_token: bearer_token.to_string(),
+    });
+
+    let state = init_daemon(config).await?;
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        info!("Received shutdown signal (Ctrl+C)");
+        let _ = shutdown_tx.send(());
+    });
+
+    let stats_handle = spawn_stats_reporter(state.stats.clone());
+    let final_stats = state.stats.clone();
+
+    tokio::select! {
+        result = run_daemon_loop(state.clone()) => {
+            if let Err(e) = result {
+                error!("Daemon error: {e}");
+                return Err(e);
             }
+            Ok(())
         }
-
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                break;
-            }
-            _ = tokio::time::sleep(interval) => {}
+        _ = shutdown_rx => {
+            info!("Received shutdown signal, shutting down daemon...");
+            stats_handle.abort();
+            print_final_stats(&final_stats).await;
+            Ok(())
         }
     }
+}
+
+async fn init_daemon(config: Arc<DaemonConfig>) -> Result<DaemonState> {
+    if !config.data_dir.exists() {
+        std::fs::create_dir_all(&config.data_dir).context("Failed to create data directory")?;
+    }
+
+    info!("Initializing Twitter client");
+    let twitter_client = Arc::new(TwitterClient::new(&config.bearer_token)?);
+
+    info!(
+        "Connecting to {relay_count} Nostr relays",
+        relay_count = config.relays.len()
+    );
+    let ephemeral = Keys::generate();
+    let nostr_client = Arc::new(build_nostr_client(&ephemeral, &config.relays).await?);
+
+    let mut user_states = HashMap::new();
+    for username in &config.users {
+        let key = Username::parse(username)
+            .map(|u| u.normalized().to_string())
+            .unwrap_or_else(|_| username.clone());
+        user_states.insert(key.clone(), UserState::new());
+    }
+
+    let rate_limiter = Arc::new(Mutex::new(RateLimiter::new(100, 900)));
+
+    Ok(DaemonState {
+        config,
+        twitter_client,
+        nostr_client,
+        user_states: Arc::new(RwLock::new(user_states)),
+        stats: Arc::new(RwLock::new(DaemonStats {
+            start_time: Instant::now(),
+            total_polls: 0,
+            successful_polls: 0,
+            failed_polls: 0,
+            total_tweets_downloaded: 0,
+            total_tweets_posted: 0,
+        })),
+        rate_limiter,
+    })
+}
+
+async fn run_daemon_loop(state: DaemonState) -> Result<()> {
+    loop {
+        let poll_start = Instant::now();
+
+        let users_to_poll = get_users_ready_for_polling(&state).await;
+        if users_to_poll.is_empty() {
+            trace!("No users ready for polling, sleeping for 10 seconds");
+            time::sleep(Duration::from_secs(10)).await;
+            continue;
+        }
+
+        info!(
+            "Starting polling for {user_count} users",
+            user_count = users_to_poll.len()
+        );
+
+        for username in &users_to_poll {
+            match process_user(state.clone(), username.clone()).await {
+                Ok(()) => {
+                    debug!("Successfully processed user: {username}");
+                    let mut user_states = state.user_states.write().await;
+                    if let Some(user_state) = user_states.get_mut(username) {
+                        user_state.consecutive_failures = 0;
+                        user_state.last_success_time = Some(Instant::now());
+                    }
+                }
+                Err(e) => {
+                    error!("Error processing user @{username}: {e}");
+                    let mut user_states = state.user_states.write().await;
+                    if let Some(user_state) = user_states.get_mut(username) {
+                        user_state.consecutive_failures += 1;
+                        match user_state.consecutive_failures {
+                            1..=2 => warn!(
+                                "User @{username} failed {failures} times, retrying with backoff",
+                                failures = user_state.consecutive_failures
+                            ),
+                            3..=5 => error!(
+                                "User @{username} failed {failures} times, increasing backoff",
+                                failures = user_state.consecutive_failures
+                            ),
+                            _ => error!(
+                                "User @{username} failed {failures} times, manual intervention may be required",
+                                failures = user_state.consecutive_failures
+                            ),
+                        }
+                    }
+
+                    if let Some(twitter_err) = e.downcast_ref::<TwitterAdapterError>() {
+                        match twitter_err {
+                            TwitterAdapterError::UserNotFound { username: user } => {
+                                error!("User @{user} not found");
+                            }
+                            TwitterAdapterError::TweetNotFound { tweet_id } => {
+                                debug!("Tweet {tweet_id} not found for @{username}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let poll_duration = poll_start.elapsed();
+        let mut stats_guard = state.stats.write().await;
+        stats_guard.total_polls += 1;
+        if !users_to_poll.is_empty() {
+            stats_guard.successful_polls += 1;
+        }
+        drop(stats_guard);
+
+        info!(
+            "Polling cycle completed in {duration:.2}s - processed {user_count} users",
+            duration = poll_duration.as_secs_f64(),
+            user_count = users_to_poll.len()
+        );
+
+        let stats = state.stats.read().await;
+        if stats.total_polls % 10 == 0 {
+            let uptime = stats.start_time.elapsed();
+            let user_states = state.user_states.read().await;
+            let healthy_users = user_states
+                .values()
+                .filter(|u| u.consecutive_failures == 0)
+                .count();
+            let failing_users = user_states
+                .values()
+                .filter(|u| u.consecutive_failures > 0)
+                .count();
+
+            info!("=== Daemon Status Report ===");
+            info!("Uptime: {:.1} hours", uptime.as_secs_f64() / 3600.0);
+            info!(
+                "Total polls: {total_polls}, Success rate: {success_rate:.1}%",
+                total_polls = stats.total_polls,
+                success_rate = if stats.total_polls > 0 {
+                    (stats.successful_polls as f64 / stats.total_polls as f64) * 100.0
+                } else {
+                    0.0
+                }
+            );
+            info!(
+                "Tweets: {total_tweets_downloaded} downloaded, {total_tweets_posted} posted",
+                total_tweets_downloaded = stats.total_tweets_downloaded,
+                total_tweets_posted = stats.total_tweets_posted
+            );
+            info!("Users: {healthy_users} healthy, {failing_users} failing");
+
+            if failing_users > 0 {
+                for (username, state) in user_states.iter() {
+                    if state.consecutive_failures > 0 {
+                        warn!(
+                            "User @{username} has {failures} consecutive failures",
+                            username = username,
+                            failures = state.consecutive_failures
+                        );
+                    }
+                }
+            }
+            info!("=============================");
+        }
+
+        time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
+async fn get_users_ready_for_polling(state: &DaemonState) -> Vec<String> {
+    let user_states = state.user_states.read().await;
+    let mut ready = Vec::new();
+
+    for (username, user_state) in user_states.iter() {
+        if user_state.is_processing {
+            continue;
+        }
+
+        let delay = user_state.next_poll_delay(state.config.poll_interval);
+        let should_poll = match user_state.last_poll_time {
+            None => true,
+            Some(last) => last.elapsed() >= delay,
+        };
+
+        if should_poll {
+            ready.push(username.clone());
+        }
+    }
+
+    ready
+}
+
+async fn process_user(state: DaemonState, username: String) -> Result<()> {
+    {
+        let mut user_states = state.user_states.write().await;
+        if let Some(user_state) = user_states.get_mut(&username) {
+            user_state.is_processing = true;
+            user_state.last_poll_time = Some(Instant::now());
+        }
+    }
+
+    debug!("Processing user: @{username}");
+    state.rate_limiter.lock().await.wait_if_needed().await;
+
+    {
+        let user_states = state.user_states.read().await;
+        let user_state = user_states.get(&username).cloned();
+        drop(user_states);
+
+        if let Some(user_state) = user_state {
+            if !user_state.profile_posted
+                || should_refresh_profile(user_state.last_profile_post_time)
+            {
+                if let Ok(username_parsed) = Username::parse(&username) {
+                    let _ = ensure_user_profile_posted(&state, &username_parsed).await;
+                }
+            }
+        }
+    }
+
+    let result = process_user_tweets(&state, &username).await;
+
+    {
+        let mut user_states = state.user_states.write().await;
+        let mut stats = state.stats.write().await;
+
+        if let Some(user_state) = user_states.get_mut(&username) {
+            user_state.is_processing = false;
+
+            match &result {
+                Ok((downloaded, posted)) => {
+                    user_state.last_success_time = Some(Instant::now());
+                    user_state.consecutive_failures = 0;
+                    user_state.total_tweets_downloaded += downloaded;
+                    user_state.total_tweets_posted += posted;
+
+                    stats.successful_polls += 1;
+                    stats.total_tweets_downloaded += downloaded;
+                    stats.total_tweets_posted += posted;
+
+                    if *downloaded > 0 || *posted > 0 {
+                        info!("User @{username}: downloaded {downloaded} tweets, posted {posted}",);
+                    }
+                }
+                Err(e) => {
+                    user_state.consecutive_failures += 1;
+                    stats.failed_polls += 1;
+                    warn!(
+                        "Failed to process @{username} (failure #{failures}): {e}",
+                        failures = user_state.consecutive_failures
+                    );
+                }
+            }
+
+            stats.total_polls += 1;
+        }
+    }
+
+    result.map(|_| ())
+}
+
+async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64, u64)> {
+    let username_parsed = Username::parse(username)?;
+    let storage = FileStorage::new(&state.config.data_dir)?;
+    let since_id = storage
+        .find_latest_tweet_id_for_user(&username_parsed)
+        .await?;
+
+    let tweets =
+        fetch_timeline_with_retry(&state.twitter_client, &username_parsed, since_id).await?;
+
+    if tweets.is_empty() {
+        return Ok((0, 0));
+    }
+
+    let mut new_tweets = 0u64;
+    let mut posted_to_nostr = 0u64;
+
+    for mut tweet in tweets {
+        if let Some(cached) = storage.load_tweet(&tweet.id).await? {
+            let keys = derive_keys_for_user(&cached.author.id, &state.config.mnemonic)?;
+            if !is_tweet_posted_to_nostr(&cached.id, &state.nostr_client, &keys).await? {
+                if post_tweet_to_nostr_with_state(&cached, state).await.is_ok() {
+                    posted_to_nostr += 1;
+                    let referenced = collect_usernames_from_tweet(&cached);
+                    if !referenced.is_empty() {
+                        let _ = post_referenced_profiles(
+                            &referenced,
+                            &state.nostr_client,
+                            &state.config.data_dir,
+                            &state.config.mnemonic,
+                        )
+                        .await;
+                    }
+                }
+            }
+            continue;
+        }
+
+        state
+            .twitter_client
+            .enrich_referenced_tweets(&mut tweet)
+            .await?;
+        storage.save_tweet(&tweet).await?;
+        new_tweets += 1;
+        let _ = fetch_media_assets(&state.config.data_dir, &tweet).await?;
+
+        let referenced = collect_usernames_from_tweet(&tweet);
+        if !referenced.is_empty() {
+            download_profiles_for_usernames(&state.twitter_client, &storage, referenced.clone())
+                .await?;
+        }
+
+        let keys = derive_keys_for_user(&tweet.author.id, &state.config.mnemonic)?;
+        if !is_tweet_posted_to_nostr(&tweet.id, &state.nostr_client, &keys).await? {
+            if post_tweet_to_nostr_with_state(&tweet, state).await.is_ok() {
+                posted_to_nostr += 1;
+                if !referenced.is_empty() {
+                    let _ = post_referenced_profiles(
+                        &referenced,
+                        &state.nostr_client,
+                        &state.config.data_dir,
+                        &state.config.mnemonic,
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+
+    Ok((new_tweets, posted_to_nostr))
+}
+
+async fn is_tweet_posted_to_nostr(
+    tweet_id: &TweetId,
+    nostr_client: &NostrClient,
+    keys: &Keys,
+) -> Result<bool> {
+    match find_existing_event(nostr_client, tweet_id, keys).await {
+        Ok(Some(_)) => Ok(true),
+        Ok(None) => Ok(false),
+        Err(_) => Ok(false),
+    }
+}
+
+fn should_refresh_profile(last_post_time: Option<Instant>) -> bool {
+    const PROFILE_REFRESH_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+    match last_post_time {
+        None => true,
+        Some(time) => time.elapsed() > PROFILE_REFRESH_INTERVAL,
+    }
+}
+
+async fn ensure_user_profile_posted(state: &DaemonState, username: &Username) -> Result<bool> {
+    let exists = check_profile_exists(
+        username,
+        &state.nostr_client,
+        &state.config.data_dir,
+        &state.config.mnemonic,
+    )
+    .await?;
+
+    if !exists {
+        return post_user_profile(state, username).await;
+    }
+
+    Ok(false)
+}
+
+async fn post_user_profile(state: &DaemonState, username: &Username) -> Result<bool> {
+    download_profiles_for_usernames(
+        &state.twitter_client,
+        &FileStorage::new(&state.config.data_dir)?,
+        HashSet::from([username.as_str().to_string()]),
+    )
+    .await?;
+
+    match post_user_profile_with_relay_list(
+        username,
+        &state.nostr_client,
+        &state.config.data_dir,
+        &state.config.mnemonic,
+        &state.config.relays,
+    )
+    .await
+    {
+        Ok(()) => {
+            let mut user_states = state.user_states.write().await;
+            if let Some(user_state) = user_states.get_mut(username.as_str()) {
+                user_state.last_profile_post_time = Some(Instant::now());
+                user_state.profile_posted = true;
+            }
+            Ok(true)
+        }
+        Err(err) => {
+            warn!(
+                "Failed to post profile for @{username}: {err}",
+                username = username.as_str()
+            );
+            Ok(false)
+        }
+    }
+}
+
+async fn fetch_timeline_with_retry(
+    client: &TwitterClient,
+    username: &Username,
+    since_id: Option<TweetId>,
+) -> Result<Vec<Tweet>> {
+    let backoff = ExponentialBackoff {
+        initial_interval: Duration::from_secs(1),
+        randomization_factor: 0.1,
+        multiplier: 2.0,
+        max_interval: Duration::from_secs(60),
+        max_elapsed_time: Some(Duration::from_secs(300)),
+        ..Default::default()
+    };
+
+    retry(backoff, || async {
+        let query = UserTweetsQuery {
+            count: 20,
+            days: None,
+            since_id: since_id.clone(),
+        };
+
+        match client.fetch_user_tweets(username, query).await {
+            Ok(tweets) => Ok(tweets),
+            Err(e) => {
+                if let Some(twitter_err) = e.downcast_ref::<TwitterAdapterError>() {
+                    match twitter_err {
+                        TwitterAdapterError::UserNotFound { .. }
+                        | TwitterAdapterError::TweetNotFound { .. } => {
+                            return Err(backoff::Error::permanent(e));
+                        }
+                    }
+                }
+                Err(backoff::Error::transient(e))
+            }
+        }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Failed after retries: {e}"))
+}
+
+async fn post_tweet_to_nostr_with_state(tweet: &Tweet, state: &DaemonState) -> Result<()> {
+    let original_media_urls = extract_media_urls(tweet);
+    let assets = fetch_media_assets(&state.config.data_dir, tweet).await?;
+    let blossom_urls =
+        if let Some(client) = build_blossom_client(&state.config.blossom_servers).await? {
+            client.upload_media(&assets).await?
+        } else {
+            Vec::new()
+        };
+
+    let content_media_urls = if blossom_urls.is_empty() {
+        original_media_urls.clone()
+    } else {
+        blossom_urls.clone()
+    };
+
+    let keys = derive_keys_for_user(&tweet.author.id, &state.config.mnemonic)?;
+    let mut resolver = NostrLinkResolver::new(
+        Some(state.config.data_dir.clone()),
+        Some(state.config.mnemonic.clone()),
+    );
+    let (content, mentioned_pubkeys) =
+        format_tweet_as_nostr_content_with_mentions(tweet, &content_media_urls, &mut resolver)
+            .await?;
+
+    let tags = build_nostr_event_tags(
+        &tweet.id,
+        &original_media_urls,
+        &blossom_urls,
+        &mentioned_pubkeys,
+    )?;
+    let created_at = tweet.created_at.unix_timestamp()?;
+    let draft = NostrEventDraft {
+        content,
+        tags,
+        created_at: Some(created_at),
+    };
+
+    let event = build_event_from_draft(&draft, &keys).await?;
+    save_nostr_event_json(&state.config.data_dir, &event)?;
+    let _ = state
+        .nostr_client
+        .send_event(&event)
+        .await
+        .context("Failed to publish Nostr event")?;
+
     Ok(())
+}
+
+fn spawn_stats_reporter(stats: Arc<RwLock<DaemonStats>>) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            let stats = stats.read().await;
+            let uptime = stats.start_time.elapsed();
+            let hours = uptime.as_secs() / 3600;
+            let minutes = (uptime.as_secs() % 3600) / 60;
+
+            info!(
+                "Stats | Uptime: {hours}h{minutes}m | Polls: {total_polls} (✓{successful_polls} ✗{failed_polls}) | Downloaded: {total_tweets_downloaded} | Posted: {total_tweets_posted}",
+                total_polls = stats.total_polls,
+                successful_polls = stats.successful_polls,
+                failed_polls = stats.failed_polls,
+                total_tweets_downloaded = stats.total_tweets_downloaded,
+                total_tweets_posted = stats.total_tweets_posted
+            );
+        }
+    })
+}
+
+async fn print_final_stats(stats: &Arc<RwLock<DaemonStats>>) {
+    let stats = stats.read().await;
+    let uptime = stats.start_time.elapsed();
+
+    info!("=== Final Daemon Statistics ===");
+    info!(
+        "Uptime: {uptime:.2} hours",
+        uptime = uptime.as_secs_f64() / 3600.0
+    );
+    info!(
+        "Total polls: {total_polls}",
+        total_polls = stats.total_polls
+    );
+    info!(
+        "Successful polls: {successful_polls}",
+        successful_polls = stats.successful_polls
+    );
+    info!(
+        "Failed polls: {failed_polls}",
+        failed_polls = stats.failed_polls
+    );
+    info!(
+        "Total tweets downloaded: {total_tweets_downloaded}",
+        total_tweets_downloaded = stats.total_tweets_downloaded
+    );
+    info!(
+        "Total tweets posted: {total_tweets_posted}",
+        total_tweets_posted = stats.total_tweets_posted
+    );
+    info!("===============================");
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1801,7 +2787,7 @@ async fn utils_query_events(
                 {
                     out.push_str(&format!(
                         "Created: {} ({})\n",
-                        ts.format(&time::format_description::well_known::Rfc3339)
+                        ts.format(&format_description::well_known::Rfc3339)
                             .unwrap_or_else(|_| "Unknown".to_string()),
                         event.created_at.as_secs()
                     ));
@@ -1857,6 +2843,7 @@ async fn utils_query_events(
 mod tests {
     use super::*;
     use clap::CommandFactory;
+    use tempfile::TempDir;
 
     #[test]
     fn help_includes_global_flags_and_commands() {
@@ -1950,5 +2937,206 @@ mod tests {
             err.to_string(),
             "Mnemonic not provided. Please use --mnemonic flag or NOSTRWEET_MNEMONIC environment variable."
         );
+    }
+
+    #[test]
+    fn profile_metadata_includes_disclaimer() -> Result<()> {
+        let username = Username::parse("tester")?;
+        let user = User {
+            id: UserId::parse("123")?,
+            name: Some("Test User".to_string()),
+            username: username.clone(),
+            profile_image_url: None,
+            description: Some("Hello".to_string()),
+            url: None,
+            entities: None,
+        };
+
+        let metadata = build_profile_metadata(&user, &username);
+        let about = metadata.about.unwrap_or_default();
+        assert!(about.contains("Hello"));
+        assert!(about.contains("https://x.com/tester"));
+        assert!(about.contains("nostrweet"));
+        Ok(())
+    }
+
+    #[test]
+    fn should_refresh_profile_after_24h() {
+        assert!(should_refresh_profile(None));
+        let recent = Instant::now() - Duration::from_secs(60 * 60);
+        assert!(!should_refresh_profile(Some(recent)));
+        let old = Instant::now() - Duration::from_secs(60 * 60 * 25);
+        assert!(should_refresh_profile(Some(old)));
+    }
+
+    #[tokio::test]
+    async fn save_nostr_event_json_writes_file() -> Result<()> {
+        let temp = TempDir::new()?;
+        let keys = Keys::generate();
+        let event = EventBuilder::new(Kind::TextNote, "hello")
+            .sign(&keys)
+            .await?;
+        save_nostr_event_json(temp.path(), &event)?;
+        let path = temp
+            .path()
+            .join("nostr_events")
+            .join(format!("{}.json", event.id.to_hex()));
+        assert!(path.exists());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn post_user_to_nostr_errors_when_no_cached_tweets() -> Result<()> {
+        let temp = TempDir::new()?;
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let result =
+            post_user_to_nostr(temp.path(), mnemonic, "tester", &[], &[], false, false).await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No cached tweets found for user @tester")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn post_tweet_to_nostr_skips_when_event_info_exists() -> Result<()> {
+        let temp = TempDir::new()?;
+        let storage = FileStorage::new(temp.path())?;
+        let tweet_id = TweetId::parse("123456789")?;
+        let event_id = NostrEventId::parse(&format!("{:064x}", 1))?;
+        let pubkey = NostrPubkey::parse(&format!("{:064x}", 2))?;
+        let info = NostrEventInfo {
+            tweet_id: tweet_id.clone(),
+            event_id,
+            pubkey,
+            created_at: UnixTimestamp::new(1),
+            media_urls: vec![HttpUrl::parse("https://example.com/media.jpg")?],
+            relays: vec![nostrweet_core::RelayUrl::parse("https://relay.example")?],
+            event_json: None,
+        };
+        storage.save_nostr_event_info(&info).await?;
+
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let result = post_tweet_to_nostr(
+            temp.path(),
+            None,
+            mnemonic,
+            tweet_id.as_str(),
+            &[],
+            &[],
+            false,
+            false,
+        )
+        .await;
+        assert!(result.is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn next_poll_delay_exponential_backoff() {
+        let mut state = UserState::new();
+        assert_eq!(state.next_poll_delay(300), Duration::from_secs(300));
+        state.consecutive_failures = 1;
+        assert_eq!(state.next_poll_delay(300), Duration::from_secs(600));
+        state.consecutive_failures = 2;
+        assert_eq!(state.next_poll_delay(300), Duration::from_secs(1200));
+        state.consecutive_failures = 10;
+        assert_eq!(state.next_poll_delay(300), Duration::from_secs(3600));
+    }
+
+    #[tokio::test]
+    async fn get_users_ready_for_polling_respects_delay() -> Result<()> {
+        let temp = TempDir::new()?;
+        let mnemonic = MnemonicPhrase::parse(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )?;
+        let config = Arc::new(DaemonConfig {
+            users: vec!["alice".to_string(), "bob".to_string()],
+            relays: Vec::new(),
+            blossom_servers: Vec::new(),
+            poll_interval: 300,
+            data_dir: temp.path().to_path_buf(),
+            mnemonic,
+            bearer_token: "token".to_string(),
+        });
+
+        let twitter_client = Arc::new(TwitterClient::new(&config.bearer_token)?);
+        let nostr_client = Arc::new(NostrClient::new(Keys::generate()));
+        let mut user_states = HashMap::new();
+
+        let mut alice = UserState::new();
+        alice.last_poll_time = Some(Instant::now() - Duration::from_secs(400));
+        user_states.insert("alice".to_string(), alice);
+
+        let mut bob = UserState::new();
+        bob.last_poll_time = Some(Instant::now() - Duration::from_secs(100));
+        user_states.insert("bob".to_string(), bob);
+
+        let state = DaemonState {
+            config,
+            twitter_client,
+            nostr_client,
+            user_states: Arc::new(RwLock::new(user_states)),
+            stats: Arc::new(RwLock::new(DaemonStats {
+                start_time: Instant::now(),
+                total_polls: 0,
+                successful_polls: 0,
+                failed_polls: 0,
+                total_tweets_downloaded: 0,
+                total_tweets_posted: 0,
+            })),
+            rate_limiter: Arc::new(Mutex::new(RateLimiter::new(100, 900))),
+        };
+
+        let ready = get_users_ready_for_polling(&state).await;
+        assert!(ready.contains(&"alice".to_string()));
+        assert!(!ready.contains(&"bob".to_string()));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn filter_profiles_to_post_force_returns_all() -> Result<()> {
+        let temp = TempDir::new()?;
+        let mnemonic = MnemonicPhrase::parse(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )?;
+        let client = NostrClient::new(Keys::generate());
+        let usernames = HashSet::from([
+            "alice".to_string(),
+            "bob".to_string(),
+            "charlie".to_string(),
+        ]);
+
+        let result =
+            filter_profiles_to_post(usernames.clone(), &client, temp.path(), true, &mnemonic)
+                .await?;
+        assert_eq!(result, usernames);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn post_referenced_profiles_empty_returns_zero() -> Result<()> {
+        let temp = TempDir::new()?;
+        let mnemonic = MnemonicPhrase::parse(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )?;
+        let client = NostrClient::new(Keys::generate());
+        let usernames = HashSet::new();
+        let count = post_referenced_profiles(&usernames, &client, temp.path(), &mnemonic).await?;
+        assert_eq!(count, 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn find_existing_event_handles_no_relays() -> Result<()> {
+        let client = NostrClient::new(Keys::generate());
+        let tweet_id = TweetId::parse("123456789")?;
+        let keys = Keys::generate();
+        let found = find_existing_event(&client, &tweet_id, &keys).await?;
+        assert!(found.is_none());
+        Ok(())
     }
 }
