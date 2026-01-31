@@ -13,8 +13,8 @@ use nostrweet_blossom::BlossomClient;
 use nostrweet_core::{BlossomPort, TwitterPort};
 use nostrweet_core::{
     HttpUrl, Media, MediaAsset, MediaKind, MediaVariant, MnemonicPhrase, NostrEventDraft,
-    NostrEventId, NostrEventInfo, NostrPubkey, NostrTag, StoragePort, Tweet, TweetId,
-    UnixTimestamp, User, UserId, UserTweetsQuery, Username, decode_html_entities,
+    NostrEventId, NostrEventInfo, NostrEventResult, NostrPubkey, NostrTag, StoragePort, Tweet,
+    TweetId, UnixTimestamp, User, UserId, UserTweetsQuery, Username, decode_html_entities,
     derive_nostr_secret_key, expand_urls_in_text, extract_media_urls,
 };
 use nostrweet_storage::FileStorage;
@@ -29,6 +29,123 @@ use tokio::sync::{Mutex, RwLock, oneshot};
 use tokio::time;
 use tracing::{debug, error, info, trace, warn};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+
+trait MediaFetcher {
+    async fn fetch_media_assets(&self, data_dir: &Path, tweet: &Tweet) -> Result<Vec<MediaAsset>>;
+}
+
+struct DefaultMediaFetcher;
+
+impl MediaFetcher for DefaultMediaFetcher {
+    async fn fetch_media_assets(&self, data_dir: &Path, tweet: &Tweet) -> Result<Vec<MediaAsset>> {
+        fetch_media_assets(data_dir, tweet).await
+    }
+}
+
+trait NostrAdapter {
+    async fn publish_event(&self, draft: &NostrEventDraft, keys: &Keys)
+    -> Result<NostrEventResult>;
+    async fn find_event_by_tweet(
+        &self,
+        tweet_id: &TweetId,
+        keys: &Keys,
+    ) -> Result<Option<nostr_sdk::Event>>;
+    async fn profile_exists(&self, pubkey: &nostr_sdk::PublicKey) -> Result<bool>;
+    async fn publish_profile(&self, metadata: Metadata, keys: &Keys) -> Result<nostr_sdk::EventId>;
+    async fn update_relay_list(&self, relays: &[String], keys: &Keys) -> Result<()>;
+}
+
+struct NostrSdkAdapter {
+    client: NostrClient,
+    data_dir: PathBuf,
+}
+
+impl NostrSdkAdapter {
+    async fn new(keys: &Keys, relays: &[String], data_dir: &Path) -> Result<Self> {
+        let client = build_nostr_client(keys, relays).await?;
+        Ok(Self {
+            client,
+            data_dir: data_dir.to_path_buf(),
+        })
+    }
+}
+
+impl NostrAdapter for NostrSdkAdapter {
+    async fn publish_event(
+        &self,
+        draft: &NostrEventDraft,
+        keys: &Keys,
+    ) -> Result<NostrEventResult> {
+        let event = build_event_from_draft(draft, keys).await?;
+        save_nostr_event_json(&self.data_dir, &event)?;
+        let output = self
+            .client
+            .send_event(&event)
+            .await
+            .context("Failed to publish Nostr event")?;
+        Ok(NostrEventResult {
+            event_id: NostrEventId::parse(&output.val.to_hex())?,
+            event_json: Some(
+                serde_json::to_string_pretty(&event).context("Failed to serialize Nostr event")?,
+            ),
+        })
+    }
+
+    async fn find_event_by_tweet(
+        &self,
+        tweet_id: &TweetId,
+        keys: &Keys,
+    ) -> Result<Option<nostr_sdk::Event>> {
+        find_existing_event(&self.client, tweet_id, keys).await
+    }
+
+    async fn profile_exists(&self, pubkey: &nostr_sdk::PublicKey) -> Result<bool> {
+        let filter = Filter::new().author(*pubkey).kind(Kind::Metadata).limit(1);
+        let events = self
+            .client
+            .fetch_events(filter, Duration::from_secs(10))
+            .await?;
+        Ok(!events.is_empty())
+    }
+
+    async fn publish_profile(&self, metadata: Metadata, keys: &Keys) -> Result<nostr_sdk::EventId> {
+        let event = EventBuilder::metadata(&metadata)
+            .sign(keys)
+            .await
+            .context("Failed to sign metadata event")?;
+        save_nostr_event_json(&self.data_dir, &event)?;
+        let output = self
+            .client
+            .send_event(&event)
+            .await
+            .context("Failed to publish profile event")?;
+        Ok(*output.id())
+    }
+
+    async fn update_relay_list(&self, relays: &[String], keys: &Keys) -> Result<()> {
+        let relay_list: Vec<(nostr_sdk::RelayUrl, Option<RelayMetadata>)> = relays
+            .iter()
+            .filter_map(|relay| match nostr_sdk::RelayUrl::parse(relay) {
+                Ok(url) => Some((url, None)),
+                Err(_) => None,
+            })
+            .collect();
+        if relay_list.is_empty() && !relays.is_empty() {
+            bail!("No valid relay URLs provided");
+        }
+
+        let event = EventBuilder::relay_list(relay_list)
+            .sign(keys)
+            .await
+            .context("Failed to sign relay list event")?;
+        let _ = self
+            .client
+            .send_event(&event)
+            .await
+            .context("Failed to publish relay list event")?;
+        Ok(())
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(
@@ -838,6 +955,19 @@ async fn load_or_fetch_tweet(
     tweet_id: &TweetId,
 ) -> Result<Tweet> {
     let storage = FileStorage::new(data_dir)?;
+    let twitter = if let Some(token) = bearer_token {
+        Some(TwitterClient::new(token)?)
+    } else {
+        None
+    };
+    load_or_fetch_tweet_with_ports(&storage, twitter.as_ref(), tweet_id).await
+}
+
+async fn load_or_fetch_tweet_with_ports<S: StoragePort, T: TwitterPort>(
+    storage: &S,
+    twitter: Option<&T>,
+    tweet_id: &TweetId,
+) -> Result<Tweet> {
     if storage.is_tweet_not_found(tweet_id).await? {
         bail!(
             "Tweet {} was previously marked as not found",
@@ -849,8 +979,7 @@ async fn load_or_fetch_tweet(
         return Ok(tweet);
     }
 
-    let token = bearer_token.context("Twitter bearer token required to fetch tweet from API")?;
-    let twitter = TwitterClient::new(token)?;
+    let twitter = twitter.context("Twitter bearer token required to fetch tweet from API")?;
     match twitter.fetch_tweet(tweet_id).await {
         Ok(tweet) => {
             storage.save_tweet(&tweet).await?;
@@ -1502,7 +1631,7 @@ fn build_profile_metadata(user: &User, username: &Username) -> Metadata {
 
 async fn post_single_profile(
     username: &Username,
-    client: &NostrClient,
+    adapter: &impl NostrAdapter,
     data_dir: &Path,
     mnemonic: &MnemonicPhrase,
 ) -> Result<nostr_sdk::EventId> {
@@ -1516,26 +1645,20 @@ async fn post_single_profile(
 
     let keys = derive_keys_for_user(&user.id, mnemonic)?;
     let metadata = build_profile_metadata(&user, username);
-
-    let event = EventBuilder::metadata(&metadata)
-        .sign(&keys)
+    adapter
+        .publish_profile(metadata, &keys)
         .await
-        .context("Failed to sign metadata event")?;
-
-    save_nostr_event_json(data_dir, &event)?;
-
-    let output = client.send_event(&event).await.with_context(|| {
-        format!(
-            "Failed to publish profile for @{username}",
-            username = username.as_str()
-        )
-    })?;
-    Ok(*output.id())
+        .with_context(|| {
+            format!(
+                "Failed to publish profile for @{username}",
+                username = username.as_str()
+            )
+        })
 }
 
 async fn post_relay_list_for_user(
     username: &Username,
-    client: &NostrClient,
+    adapter: &impl NostrAdapter,
     data_dir: &Path,
     mnemonic: &MnemonicPhrase,
     relays: &[String],
@@ -1549,44 +1672,29 @@ async fn post_relay_list_for_user(
     };
 
     let keys = derive_keys_for_user(&user.id, mnemonic)?;
-    let relay_list: Vec<(nostr_sdk::RelayUrl, Option<RelayMetadata>)> = relays
-        .iter()
-        .filter_map(|relay| match nostr_sdk::RelayUrl::parse(relay) {
-            Ok(url) => Some((url, None)),
-            Err(_) => None,
-        })
-        .collect();
-
-    let event = EventBuilder::relay_list(relay_list)
-        .sign(&keys)
-        .await
-        .context("Failed to sign relay list event")?;
-    let _ = client
-        .send_event(&event)
-        .await
-        .context("Failed to publish relay list event")?;
+    adapter.update_relay_list(relays, &keys).await?;
     Ok(())
 }
 
 async fn post_user_profile_with_relay_list(
     username: &Username,
-    client: &NostrClient,
+    adapter: &impl NostrAdapter,
     data_dir: &Path,
     mnemonic: &MnemonicPhrase,
     relays: &[String],
 ) -> Result<()> {
-    let event_id = post_single_profile(username, client, data_dir, mnemonic).await?;
+    let event_id = post_single_profile(username, adapter, data_dir, mnemonic).await?;
     debug!(
         "Posted profile for @{username} with event ID {event_id}",
         username = username.as_str()
     );
-    post_relay_list_for_user(username, client, data_dir, mnemonic, relays).await?;
+    post_relay_list_for_user(username, adapter, data_dir, mnemonic, relays).await?;
     Ok(())
 }
 
 async fn check_profile_exists(
     username: &Username,
-    client: &NostrClient,
+    adapter: &impl NostrAdapter,
     data_dir: &Path,
     mnemonic: &MnemonicPhrase,
 ) -> Result<bool> {
@@ -1596,16 +1704,12 @@ async fn check_profile_exists(
     };
 
     let keys = derive_keys_for_user(&user.id, mnemonic)?;
-    let pubkey = keys.public_key();
-    let filter = Filter::new().author(pubkey).kind(Kind::Metadata).limit(1);
-
-    let events = client.fetch_events(filter, Duration::from_secs(10)).await?;
-    Ok(!events.is_empty())
+    adapter.profile_exists(&keys.public_key()).await
 }
 
 async fn filter_profiles_to_post(
     usernames: HashSet<String>,
-    client: &NostrClient,
+    adapter: &impl NostrAdapter,
     data_dir: &Path,
     force: bool,
     mnemonic: &MnemonicPhrase,
@@ -1626,14 +1730,10 @@ async fn filter_profiles_to_post(
         };
 
         let keys = derive_keys_for_user(&user.id, mnemonic)?;
-        let pubkey = keys.public_key();
-        let filter = Filter::new().author(pubkey).kind(Kind::Metadata).limit(1);
-
-        let has_existing_profile = match client.fetch_events(filter, Duration::from_secs(10)).await
-        {
-            Ok(events) => !events.is_empty(),
-            Err(_) => false,
-        };
+        let has_existing_profile = adapter
+            .profile_exists(&keys.public_key())
+            .await
+            .unwrap_or(false);
 
         if !has_existing_profile {
             profiles_to_post.insert(username);
@@ -1645,7 +1745,7 @@ async fn filter_profiles_to_post(
 
 async fn post_referenced_profiles(
     usernames: &HashSet<String>,
-    client: &NostrClient,
+    adapter: &impl NostrAdapter,
     data_dir: &Path,
     mnemonic: &MnemonicPhrase,
 ) -> Result<usize> {
@@ -1660,7 +1760,7 @@ async fn post_referenced_profiles(
         let Ok(username_parsed) = Username::parse(username) else {
             continue;
         };
-        match post_single_profile(&username_parsed, client, data_dir, mnemonic).await {
+        match post_single_profile(&username_parsed, adapter, data_dir, mnemonic).await {
             Ok(_) => posted_count += 1,
             Err(err) => {
                 debug!("Failed to post profile for @{username}: {err}");
@@ -1698,18 +1798,24 @@ async fn post_tweet_to_nostr(
         }
     }
 
-    let mut tweet = load_or_fetch_tweet(data_dir, bearer_token, &tweet_id).await?;
-    if let Some(token) = bearer_token {
-        let twitter = TwitterClient::new(token)?;
+    let twitter = if let Some(token) = bearer_token {
+        Some(TwitterClient::new(token)?)
+    } else {
+        None
+    };
+    let mut tweet = load_or_fetch_tweet_with_ports(&storage, twitter.as_ref(), &tweet_id).await?;
+    if let Some(twitter) = twitter.as_ref() {
         twitter.enrich_referenced_tweets(&mut tweet).await?;
         if !skip_profiles {
-            download_profiles_for_tweet(&twitter, &storage, &tweet).await?;
+            download_profiles_for_tweet(twitter, &storage, &tweet).await?;
         }
     }
 
     let original_media_urls = extract_media_urls(&tweet);
-    let assets = fetch_media_assets(data_dir, &tweet).await?;
-    let blossom_urls = if let Some(client) = build_blossom_client(blossom_servers).await? {
+    let media_fetcher = DefaultMediaFetcher;
+    let assets = media_fetcher.fetch_media_assets(data_dir, &tweet).await?;
+    let blossom = build_blossom_client(blossom_servers).await?;
+    let blossom_urls = if let Some(client) = blossom.as_ref() {
         client.upload_media(&assets).await?
     } else {
         Vec::new()
@@ -1723,14 +1829,14 @@ async fn post_tweet_to_nostr(
 
     let mnemonic = MnemonicPhrase::parse(mnemonic)?;
     let keys = derive_keys_for_user(&tweet.author.id, &mnemonic)?;
-    let client = build_nostr_client(&keys, relays).await?;
+    let adapter = NostrSdkAdapter::new(&keys, relays, data_dir).await?;
 
     let mut resolver = NostrLinkResolver::new(Some(data_dir.to_path_buf()), Some(mnemonic.clone()));
     let (content, mentioned_pubkeys) =
         format_tweet_as_nostr_content_with_mentions(&tweet, &content_media_urls, &mut resolver)
             .await?;
 
-    let existing_event = find_existing_event(&client, &tweet_id, &keys).await?;
+    let existing_event = adapter.find_event_by_tweet(&tweet_id, &keys).await?;
     let (event_id_hex, event_json) = if let Some(existing) = existing_event {
         if force {
             debug!("Existing event found for {tweet_id}, will overwrite due to --force");
@@ -1746,18 +1852,10 @@ async fn post_tweet_to_nostr(
                 tags,
                 created_at: Some(created_at),
             };
-            let event = build_event_from_draft(&draft, &keys).await?;
-            save_nostr_event_json(data_dir, &event)?;
-            let _ = client
-                .send_event(&event)
-                .await
-                .context("Failed to publish Nostr event")?;
+            let result = adapter.publish_event(&draft, &keys).await?;
             (
-                event.id.to_hex(),
-                Some(
-                    serde_json::to_string_pretty(&event)
-                        .context("Failed to serialize Nostr event to JSON")?,
-                ),
+                result.event_id.as_str().to_string(),
+                result.event_json.clone(),
             )
         } else {
             (
@@ -1781,18 +1879,10 @@ async fn post_tweet_to_nostr(
             tags,
             created_at: Some(created_at),
         };
-        let event = build_event_from_draft(&draft, &keys).await?;
-        save_nostr_event_json(data_dir, &event)?;
-        let _ = client
-            .send_event(&event)
-            .await
-            .context("Failed to publish Nostr event")?;
+        let result = adapter.publish_event(&draft, &keys).await?;
         (
-            event.id.to_hex(),
-            Some(
-                serde_json::to_string_pretty(&event)
-                    .context("Failed to serialize Nostr event to JSON")?,
-            ),
+            result.event_id.as_str().to_string(),
+            result.event_json.clone(),
         )
     };
 
@@ -1817,10 +1907,10 @@ async fn post_tweet_to_nostr(
         let referenced_users = collect_usernames_from_tweet(&tweet);
         if !referenced_users.is_empty() {
             let profiles_to_post =
-                filter_profiles_to_post(referenced_users, &client, data_dir, force, &mnemonic)
+                filter_profiles_to_post(referenced_users, &adapter, data_dir, force, &mnemonic)
                     .await?;
             if !profiles_to_post.is_empty() {
-                let _ = post_referenced_profiles(&profiles_to_post, &client, data_dir, &mnemonic)
+                let _ = post_referenced_profiles(&profiles_to_post, &adapter, data_dir, &mnemonic)
                     .await?;
             }
         }
@@ -1874,13 +1964,13 @@ async fn post_user_to_nostr(
 
     if !skip_profiles && !referenced_users.is_empty() {
         let mnemonic = MnemonicPhrase::parse(mnemonic)?;
-        let ephemeral = Keys::generate();
-        let client = build_nostr_client(&ephemeral, relays).await?;
+        let keys = Keys::generate();
+        let adapter = NostrSdkAdapter::new(&keys, relays, data_dir).await?;
         let profiles_to_post =
-            filter_profiles_to_post(referenced_users, &client, data_dir, force, &mnemonic).await?;
+            filter_profiles_to_post(referenced_users, &adapter, data_dir, force, &mnemonic).await?;
         if !profiles_to_post.is_empty() {
             let _ =
-                post_referenced_profiles(&profiles_to_post, &client, data_dir, &mnemonic).await?;
+                post_referenced_profiles(&profiles_to_post, &adapter, data_dir, &mnemonic).await?;
         }
     }
 
@@ -1904,18 +1994,9 @@ async fn post_profile_to_nostr(
 
     let mnemonic = MnemonicPhrase::parse(mnemonic)?;
     let keys = derive_keys_for_user(&user.id, &mnemonic)?;
-    let client = build_nostr_client(&keys, relays).await?;
-
+    let adapter = NostrSdkAdapter::new(&keys, relays, data_dir).await?;
     let metadata = build_profile_metadata(&user, &username);
-    let event = EventBuilder::metadata(&metadata)
-        .sign(&keys)
-        .await
-        .context("Failed to sign metadata event")?;
-    save_nostr_event_json(data_dir, &event)?;
-    let _ = client
-        .send_event(&event)
-        .await
-        .context("Failed to publish profile event")?;
+    let _ = adapter.publish_profile(metadata, &keys).await?;
     Ok(())
 }
 
@@ -1923,27 +2004,8 @@ async fn update_relay_list(mnemonic: &str, relays: &[String]) -> Result<()> {
     let mnemonic = MnemonicPhrase::parse(mnemonic)?;
     let user_id = UserId::parse("0")?;
     let keys = derive_keys_for_user(&user_id, &mnemonic)?;
-    let client = build_nostr_client(&keys, relays).await?;
-
-    let relay_list: Vec<(nostr_sdk::RelayUrl, Option<RelayMetadata>)> = relays
-        .iter()
-        .filter_map(|relay| match nostr_sdk::RelayUrl::parse(relay) {
-            Ok(url) => Some((url, None)),
-            Err(_) => None,
-        })
-        .collect();
-    if relay_list.is_empty() && !relays.is_empty() {
-        bail!("No valid relay URLs provided");
-    }
-
-    let event = EventBuilder::relay_list(relay_list)
-        .sign(&keys)
-        .await
-        .context("Failed to sign relay list event")?;
-    let _ = client
-        .send_event(&event)
-        .await
-        .context("Failed to publish relay list event")?;
+    let adapter = NostrSdkAdapter::new(&keys, relays, Path::new(".")).await?;
+    adapter.update_relay_list(relays, &keys).await?;
     Ok(())
 }
 
@@ -2064,7 +2126,7 @@ struct DaemonStats {
 struct DaemonState {
     config: Arc<DaemonConfig>,
     twitter_client: Arc<TwitterClient>,
-    nostr_client: Arc<NostrClient>,
+    nostr_adapter: Arc<NostrSdkAdapter>,
     user_states: Arc<RwLock<HashMap<String, UserState>>>,
     stats: Arc<RwLock<DaemonStats>>,
     rate_limiter: Arc<Mutex<RateLimiter>>,
@@ -2177,7 +2239,8 @@ async fn init_daemon(config: Arc<DaemonConfig>) -> Result<DaemonState> {
         relay_count = config.relays.len()
     );
     let ephemeral = Keys::generate();
-    let nostr_client = Arc::new(build_nostr_client(&ephemeral, &config.relays).await?);
+    let nostr_adapter =
+        Arc::new(NostrSdkAdapter::new(&ephemeral, &config.relays, &config.data_dir).await?);
 
     let mut user_states = HashMap::new();
     for username in &config.users {
@@ -2192,7 +2255,7 @@ async fn init_daemon(config: Arc<DaemonConfig>) -> Result<DaemonState> {
     Ok(DaemonState {
         config,
         twitter_client,
-        nostr_client,
+        nostr_adapter,
         user_states: Arc::new(RwLock::new(user_states)),
         stats: Arc::new(RwLock::new(DaemonStats {
             start_time: Instant::now(),
@@ -2442,14 +2505,14 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
     for mut tweet in tweets {
         if let Some(cached) = storage.load_tweet(&tweet.id).await? {
             let keys = derive_keys_for_user(&cached.author.id, &state.config.mnemonic)?;
-            if !is_tweet_posted_to_nostr(&cached.id, &state.nostr_client, &keys).await? {
+            if !is_tweet_posted_to_nostr(&cached.id, &*state.nostr_adapter, &keys).await? {
                 if post_tweet_to_nostr_with_state(&cached, state).await.is_ok() {
                     posted_to_nostr += 1;
                     let referenced = collect_usernames_from_tweet(&cached);
                     if !referenced.is_empty() {
                         let _ = post_referenced_profiles(
                             &referenced,
-                            &state.nostr_client,
+                            &*state.nostr_adapter,
                             &state.config.data_dir,
                             &state.config.mnemonic,
                         )
@@ -2475,13 +2538,13 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
         }
 
         let keys = derive_keys_for_user(&tweet.author.id, &state.config.mnemonic)?;
-        if !is_tweet_posted_to_nostr(&tweet.id, &state.nostr_client, &keys).await? {
+        if !is_tweet_posted_to_nostr(&tweet.id, &*state.nostr_adapter, &keys).await? {
             if post_tweet_to_nostr_with_state(&tweet, state).await.is_ok() {
                 posted_to_nostr += 1;
                 if !referenced.is_empty() {
                     let _ = post_referenced_profiles(
                         &referenced,
-                        &state.nostr_client,
+                        &*state.nostr_adapter,
                         &state.config.data_dir,
                         &state.config.mnemonic,
                     )
@@ -2496,10 +2559,10 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
 
 async fn is_tweet_posted_to_nostr(
     tweet_id: &TweetId,
-    nostr_client: &NostrClient,
+    adapter: &impl NostrAdapter,
     keys: &Keys,
 ) -> Result<bool> {
-    match find_existing_event(nostr_client, tweet_id, keys).await {
+    match adapter.find_event_by_tweet(tweet_id, keys).await {
         Ok(Some(_)) => Ok(true),
         Ok(None) => Ok(false),
         Err(_) => Ok(false),
@@ -2517,7 +2580,7 @@ fn should_refresh_profile(last_post_time: Option<Instant>) -> bool {
 async fn ensure_user_profile_posted(state: &DaemonState, username: &Username) -> Result<bool> {
     let exists = check_profile_exists(
         username,
-        &state.nostr_client,
+        &*state.nostr_adapter,
         &state.config.data_dir,
         &state.config.mnemonic,
     )
@@ -2540,7 +2603,7 @@ async fn post_user_profile(state: &DaemonState, username: &Username) -> Result<b
 
     match post_user_profile_with_relay_list(
         username,
-        &state.nostr_client,
+        &*state.nostr_adapter,
         &state.config.data_dir,
         &state.config.mnemonic,
         &state.config.relays,
@@ -2607,13 +2670,16 @@ async fn fetch_timeline_with_retry(
 
 async fn post_tweet_to_nostr_with_state(tweet: &Tweet, state: &DaemonState) -> Result<()> {
     let original_media_urls = extract_media_urls(tweet);
-    let assets = fetch_media_assets(&state.config.data_dir, tweet).await?;
-    let blossom_urls =
-        if let Some(client) = build_blossom_client(&state.config.blossom_servers).await? {
-            client.upload_media(&assets).await?
-        } else {
-            Vec::new()
-        };
+    let media_fetcher = DefaultMediaFetcher;
+    let assets = media_fetcher
+        .fetch_media_assets(&state.config.data_dir, tweet)
+        .await?;
+    let blossom = build_blossom_client(&state.config.blossom_servers).await?;
+    let blossom_urls = if let Some(client) = blossom.as_ref() {
+        client.upload_media(&assets).await?
+    } else {
+        Vec::new()
+    };
 
     let content_media_urls = if blossom_urls.is_empty() {
         original_media_urls.clone()
@@ -2643,13 +2709,7 @@ async fn post_tweet_to_nostr_with_state(tweet: &Tweet, state: &DaemonState) -> R
         created_at: Some(created_at),
     };
 
-    let event = build_event_from_draft(&draft, &keys).await?;
-    save_nostr_event_json(&state.config.data_dir, &event)?;
-    let _ = state
-        .nostr_client
-        .send_event(&event)
-        .await
-        .context("Failed to publish Nostr event")?;
+    let _ = state.nostr_adapter.publish_event(&draft, &keys).await?;
 
     Ok(())
 }
@@ -2844,6 +2904,45 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
     use tempfile::TempDir;
+
+    struct DummyNostrAdapter;
+
+    impl NostrAdapter for DummyNostrAdapter {
+        async fn publish_event(
+            &self,
+            _draft: &NostrEventDraft,
+            _keys: &Keys,
+        ) -> Result<NostrEventResult> {
+            Ok(NostrEventResult {
+                event_id: NostrEventId::parse(&format!("{:064x}", 1))?,
+                event_json: None,
+            })
+        }
+
+        async fn find_event_by_tweet(
+            &self,
+            _tweet_id: &TweetId,
+            _keys: &Keys,
+        ) -> Result<Option<nostr_sdk::Event>> {
+            Ok(None)
+        }
+
+        async fn profile_exists(&self, _pubkey: &nostr_sdk::PublicKey) -> Result<bool> {
+            Ok(false)
+        }
+
+        async fn publish_profile(
+            &self,
+            _metadata: Metadata,
+            _keys: &Keys,
+        ) -> Result<nostr_sdk::EventId> {
+            Ok(nostr_sdk::EventId::all_zeros())
+        }
+
+        async fn update_relay_list(&self, _relays: &[String], _keys: &Keys) -> Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn help_includes_global_flags_and_commands() {
@@ -3064,7 +3163,9 @@ mod tests {
         });
 
         let twitter_client = Arc::new(TwitterClient::new(&config.bearer_token)?);
-        let nostr_client = Arc::new(NostrClient::new(Keys::generate()));
+        let keys = Keys::generate();
+        let nostr_adapter =
+            Arc::new(NostrSdkAdapter::new(&keys, &config.relays, &config.data_dir).await?);
         let mut user_states = HashMap::new();
 
         let mut alice = UserState::new();
@@ -3078,7 +3179,7 @@ mod tests {
         let state = DaemonState {
             config,
             twitter_client,
-            nostr_client,
+            nostr_adapter,
             user_states: Arc::new(RwLock::new(user_states)),
             stats: Arc::new(RwLock::new(DaemonStats {
                 start_time: Instant::now(),
@@ -3103,16 +3204,20 @@ mod tests {
         let mnemonic = MnemonicPhrase::parse(
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
         )?;
-        let client = NostrClient::new(Keys::generate());
         let usernames = HashSet::from([
             "alice".to_string(),
             "bob".to_string(),
             "charlie".to_string(),
         ]);
 
-        let result =
-            filter_profiles_to_post(usernames.clone(), &client, temp.path(), true, &mnemonic)
-                .await?;
+        let result = filter_profiles_to_post(
+            usernames.clone(),
+            &DummyNostrAdapter,
+            temp.path(),
+            true,
+            &mnemonic,
+        )
+        .await?;
         assert_eq!(result, usernames);
         Ok(())
     }
@@ -3123,9 +3228,10 @@ mod tests {
         let mnemonic = MnemonicPhrase::parse(
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
         )?;
-        let client = NostrClient::new(Keys::generate());
         let usernames = HashSet::new();
-        let count = post_referenced_profiles(&usernames, &client, temp.path(), &mnemonic).await?;
+        let count =
+            post_referenced_profiles(&usernames, &DummyNostrAdapter, temp.path(), &mnemonic)
+                .await?;
         assert_eq!(count, 0);
         Ok(())
     }
