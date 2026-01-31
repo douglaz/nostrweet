@@ -2505,19 +2505,19 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
     for mut tweet in tweets {
         if let Some(cached) = storage.load_tweet(&tweet.id).await? {
             let keys = derive_keys_for_user(&cached.author.id, &state.config.mnemonic)?;
-            if !is_tweet_posted_to_nostr(&cached.id, &*state.nostr_adapter, &keys).await? {
-                if post_tweet_to_nostr_with_state(&cached, state).await.is_ok() {
-                    posted_to_nostr += 1;
-                    let referenced = collect_usernames_from_tweet(&cached);
-                    if !referenced.is_empty() {
-                        let _ = post_referenced_profiles(
-                            &referenced,
-                            &*state.nostr_adapter,
-                            &state.config.data_dir,
-                            &state.config.mnemonic,
-                        )
-                        .await;
-                    }
+            if !is_tweet_posted_to_nostr(&cached.id, &*state.nostr_adapter, &keys).await?
+                && post_tweet_to_nostr_with_state(&cached, state).await.is_ok()
+            {
+                posted_to_nostr += 1;
+                let referenced = collect_usernames_from_tweet(&cached);
+                if !referenced.is_empty() {
+                    let _ = post_referenced_profiles(
+                        &referenced,
+                        &*state.nostr_adapter,
+                        &state.config.data_dir,
+                        &state.config.mnemonic,
+                    )
+                    .await;
                 }
             }
             continue;
@@ -2538,18 +2538,18 @@ async fn process_user_tweets(state: &DaemonState, username: &str) -> Result<(u64
         }
 
         let keys = derive_keys_for_user(&tweet.author.id, &state.config.mnemonic)?;
-        if !is_tweet_posted_to_nostr(&tweet.id, &*state.nostr_adapter, &keys).await? {
-            if post_tweet_to_nostr_with_state(&tweet, state).await.is_ok() {
-                posted_to_nostr += 1;
-                if !referenced.is_empty() {
-                    let _ = post_referenced_profiles(
-                        &referenced,
-                        &*state.nostr_adapter,
-                        &state.config.data_dir,
-                        &state.config.mnemonic,
-                    )
-                    .await;
-                }
+        if !is_tweet_posted_to_nostr(&tweet.id, &*state.nostr_adapter, &keys).await?
+            && post_tweet_to_nostr_with_state(&tweet, state).await.is_ok()
+        {
+            posted_to_nostr += 1;
+            if !referenced.is_empty() {
+                let _ = post_referenced_profiles(
+                    &referenced,
+                    &*state.nostr_adapter,
+                    &state.config.data_dir,
+                    &state.config.mnemonic,
+                )
+                .await;
             }
         }
     }
