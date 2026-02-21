@@ -118,8 +118,12 @@ pub async fn run(ctx: &TestContext) -> Result<()> {
 
     if events_with_media > 0 {
         info!("{events_with_media} events contain media URLs");
+    } else if total_media_files > 0 {
+        anyhow::bail!(
+            "Media files were downloaded ({total_media_files}) but no posted events contain media URLs"
+        );
     } else {
-        info!("Note: No events contain media URLs (accounts may not have recent media tweets)");
+        info!("Note: No events contain media URLs (accounts had no recent media tweets)");
     }
 
     // Summary
@@ -143,10 +147,17 @@ fn count_tweet_files(output_dir: &std::path::Path, username: &str) -> Result<usi
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
             // Tweet files have format: YYYYMMDD_HHMMSS_username_tweetid.json
-            // Exclude profile files which end with just username.json
-            name_str.contains(username)
-                && name_str.ends_with(".json")
-                && !name_str.ends_with(&format!("{username}.json"))
+            // Profile files have format: YYYYMMDDHHMISS_username_userid.json
+            // Match only tweet files by checking for 4 underscore-separated segments
+            // where the 3rd segment is the username
+            if !name_str.ends_with(".json") {
+                return false;
+            }
+            let stem = &name_str[..name_str.len() - 5]; // strip ".json"
+            let parts: Vec<&str> = stem.split('_').collect();
+            // Tweet: [YYYYMMDD, HHMMSS, username, tweetid] = 4 parts
+            // Profile: [YYYYMMDDHHMISS, username, userid] = 3 parts
+            parts.len() == 4 && parts[2] == username
         })
         .count();
     Ok(count)
