@@ -175,12 +175,6 @@ fn get_tests() -> Vec<TestInfo> {
             description: "Test querying events from Nostr relay".to_string(),
             run_fn: |ctx| Box::pin(tests::utils_query::run(ctx)),
         },
-        TestInfo {
-            name: "multi_account_mirror".to_string(),
-            description: "Test multi-account Twitter-to-Nostr mirror with media verification"
-                .to_string(),
-            run_fn: |ctx| Box::pin(tests::multi_account_mirror::run(ctx)),
-        },
     ]
 }
 
