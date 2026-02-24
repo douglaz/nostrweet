@@ -898,6 +898,13 @@ async fn fetch_media_assets(data_dir: &Path, tweet: &Tweet) -> Result<Vec<MediaA
             let response = reqwest::get(download.url.as_str())
                 .await
                 .with_context(|| format!("Failed to download media {}", download.url.as_str()))?;
+            let status = response.status();
+            if !status.is_success() {
+                anyhow::bail!(
+                    "Media download failed with HTTP {status} for {}",
+                    download.url.as_str()
+                );
+            }
             let bytes = response
                 .bytes()
                 .await
@@ -2245,7 +2252,7 @@ async fn init_daemon(config: Arc<DaemonConfig>) -> Result<DaemonState> {
     let mut user_states = HashMap::new();
     for username in &config.users {
         let key = Username::parse(username)
-            .map(|u| u.normalized().to_string())
+            .map(|u| u.as_str().to_string())
             .unwrap_or_else(|_| username.clone());
         user_states.insert(key.clone(), UserState::new());
     }
