@@ -935,6 +935,8 @@ async fn build_blossom_client(servers: &[String]) -> Result<Option<BlossomClient
                 .with_context(|| format!("Invalid Blossom server URL: {server}"))?,
         );
     }
+    // FIXME: generate NIP-98 auth header and call .with_auth_header() so uploads
+    // work on Blossom servers that require authentication.
     Ok(Some(BlossomClient::new(parsed)?))
 }
 
