@@ -315,7 +315,7 @@ impl TwitterClient {
         let mut url = format!(
             "{TWITTER_API_BASE}/users/{id}/tweets?tweet.fields=created_at,entities,referenced_tweets,author_id,note_tweet&expansions=attachments.media_keys,referenced_tweets.id,author_id,referenced_tweets.id.attachments.media_keys&user.fields=name,username,profile_image_url,description,url,entities&media.fields=url,preview_image_url,alt_text,variants,media_key,type&max_results={max_results}",
             id = user_id.as_str(),
-            max_results = max_results.min(100)
+            max_results = max_results.clamp(5, 100)
         );
         if let Some(token) = pagination_token {
             url.push_str("&pagination_token=");

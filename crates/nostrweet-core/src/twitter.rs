@@ -9,9 +9,8 @@ pub struct TweetText(String);
 
 impl TweetText {
     pub fn parse(input: &str) -> anyhow::Result<Self> {
-        let trimmed = input.trim();
-        anyhow::ensure!(!trimmed.is_empty(), "Tweet text cannot be empty");
-        Ok(Self(trimmed.to_string()))
+        anyhow::ensure!(!input.trim().is_empty(), "Tweet text cannot be empty");
+        Ok(Self(input.to_string()))
     }
 
     pub fn as_str(&self) -> &str {
