@@ -1,0 +1,11 @@
+[package]
+name = "nostrweet-nostr"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+nostrweet-core = { path = "../nostrweet-core" }
+
+[dev-dependencies]
+tokio.workspace = true

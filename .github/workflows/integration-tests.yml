@@ -27,13 +27,13 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v9
+        uses: DeterminateSystems/nix-installer-action@v22
 
       - name: Build nostrweet binary
-        run: nix develop -c cargo build -p nostrweet
+        run: nix develop -c cargo build -p nostrweet-cli
 
       - name: Build integration test binary
         run: nix develop -c cargo build -p nostrweet-integration-tests
@@ -69,14 +69,14 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v9
+        uses: DeterminateSystems/nix-installer-action@v22
 
       - name: Build binaries
         run: |
-          nix develop -c cargo build -p nostrweet
+          nix develop -c cargo build -p nostrweet-cli
           nix develop -c cargo build -p nostrweet-integration-tests
 
       - name: Run ${{ matrix.test }} test

@@ -13,13 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v9
+        uses: DeterminateSystems/nix-installer-action@v22
 
       - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
+        uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Generate Rust documentation
         run: |
@@ -74,12 +74,12 @@ jobs:
                   <h2>🏗️ Architecture Overview</h2>
                   <p>The project is organized into several key modules:</p>
                   <ul>
-                      <li><code>commands/</code> - All CLI command implementations</li>
-                      <li><code>twitter.rs</code> - Twitter API client and data structures</li>
-                      <li><code>nostr.rs</code> - Nostr protocol implementation and event formatting</li>
-                      <li><code>media.rs</code> - Media downloading and URL extraction</li>
-                      <li><code>storage.rs</code> - Local caching and file management</li>
-                      <li><code>keys.rs</code> - Nostr key management</li>
+                      <li><code>crates/nostrweet-cli</code> - CLI command handling and formatting</li>
+                      <li><code>crates/nostrweet-core</code> - Shared models and parsing helpers</li>
+                      <li><code>crates/nostrweet-twitter</code> - Twitter API client and DTO conversions</li>
+                      <li><code>crates/nostrweet-nostr</code> - Nostr relay publishing</li>
+                      <li><code>crates/nostrweet-storage</code> - Local caching and file management</li>
+                      <li><code>crates/nostrweet-blossom</code> - Blossom media uploads</li>
                   </ul>
               </div>
               
@@ -96,8 +96,8 @@ jobs:
               <div class="section">
                   <h2>🧪 Quality Assurance</h2>
                   <ul>
-                      <li>✅ 70 unit tests covering core functionality</li>
-                      <li>✅ 22 integration tests with real tweet data</li>
+                      <li>✅ Unit tests covering core functionality</li>
+                      <li>✅ Integration tests with real tweet data</li>
                       <li>✅ Comprehensive error handling with <code>anyhow</code></li>
                       <li>✅ Clippy compliance with strict warnings</li>
                       <li>✅ Pretty assertions for detailed test output</li>
@@ -164,7 +164,7 @@ jobs:
 
       - name: Deploy to GitHub Pages (main branch only)
         if: github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: target/doc
@@ -178,13 +178,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v9
+        uses: DeterminateSystems/nix-installer-action@v22
 
       - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
+        uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Install markdown link checker
         run: |
@@ -209,13 +209,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v9
+        uses: DeterminateSystems/nix-installer-action@v22
 
       - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
+        uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Build project
         run: nix develop -c cargo build --release

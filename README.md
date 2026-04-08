@@ -36,7 +36,7 @@ A Rust CLI tool that downloads tweets with their media from Twitter and seamless
 
 - **Rust 2021 edition**
 - **Twitter API Bearer Token** (set as `TWITTER_BEARER_TOKEN` environment variable)
-- **Nostr Private Key** (optional, can be auto-generated)
+- **Nostr mnemonic** (BIP39; required for posting to Nostr)
 
 ## Installation
 
@@ -52,6 +52,7 @@ Create a `.env` file in the project root:
 
 ```bash
 TWITTER_BEARER_TOKEN=your_twitter_bearer_token
+NOSTRWEET_MNEMONIC="abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 RUST_LOG=info  # Optional: debug, trace for more verbose output
 NOSTRWEET_DATA_DIR=./downloads  # Optional: data directory for all storage
 ```
@@ -117,8 +118,7 @@ nostrweet clear-cache --force
 ```bash
 nostrweet post-tweet-to-nostr 1234567890 \
   --relays ws://relay1.example.com,wss://relay2.example.com \
-  --blossom-servers https://blossom1.example.com \
-  --private-key your_hex_private_key
+  --blossom-servers https://blossom1.example.com
 ```
 
 #### Post All User Tweets to Nostr
@@ -132,15 +132,13 @@ nostrweet post-user-to-nostr username \
 #### Post User Profile to Nostr
 ```bash
 nostrweet post-profile-to-nostr username \
-  --relays wss://relay.example.com \
-  --private-key your_hex_private_key
+  --relays wss://relay.example.com
 ```
 
 #### Update Relay List
 ```bash
 nostrweet update-relay-list \
-  --relays wss://relay1.example.com,wss://relay2.example.com \
-  --private-key your_hex_private_key
+  --relays wss://relay1.example.com,wss://relay2.example.com
 ```
 
 #### Show Tweet as Nostr Event
@@ -152,12 +150,12 @@ nostrweet show-tweet 1234567890
 ## Architecture & Technical Details
 
 ### Code Organization
-- **Commands** (`src/commands/`): All CLI command implementations
-- **Twitter API** (`src/twitter.rs`): Twitter client with comprehensive data structures
-- **Nostr Integration** (`src/nostr.rs`): Event formatting and relay publishing
-- **Media Handling** (`src/media.rs`): Download and URL extraction logic
-- **Storage** (`src/storage.rs`): Local caching and file management
-- **Key Management** (`src/keys.rs`): Nostr private key handling
+- **CLI** (`crates/nostrweet-cli/`): Command parsing and orchestration
+- **Core** (`crates/nostrweet-core/`): Shared models, parsing, and formatting helpers
+- **Twitter Adapter** (`crates/nostrweet-twitter/`): Twitter API client and conversions
+- **Nostr Adapter** (`crates/nostrweet-nostr/`): Nostr relay publishing
+- **Storage** (`crates/nostrweet-storage/`): Local caching and file management
+- **Blossom** (`crates/nostrweet-blossom/`): Media uploads to Blossom servers
 
 ### Data Formats
 
@@ -182,9 +180,8 @@ Tweets are converted to Nostr events with:
 ### Quality Assurance
 
 #### Testing
-- **70 unit tests** covering core functionality
-- **22 integration tests** with real tweet data
-- **Regression tests** for critical formatting scenarios
+- **Unit tests** covering core functionality
+- **Integration tests** with real tweet data
 - **Pretty assertions** for detailed test failure output
 
 #### Code Quality
