@@ -739,7 +739,15 @@ fn clear_cache(data_dir: &Path, force: bool) -> Result<()> {
     for entry in entries {
         let entry = entry.context("Failed to read directory entry")?;
         let path = entry.path();
-        if path.is_file() && std::fs::remove_file(&path).is_ok() {
+        let removed = if path.is_file() {
+            std::fs::remove_file(&path)
+        } else if path.is_dir() {
+            std::fs::remove_dir_all(&path)
+        } else {
+            continue;
+        };
+
+        if removed.is_ok() {
             deleted_count += 1;
         }
     }
@@ -811,10 +819,10 @@ fn select_media_url(media: &Media) -> Option<(HttpUrl, Option<String>)> {
         return Some((url.clone(), None));
     }
 
-    if matches!(media.kind, MediaKind::Video | MediaKind::AnimatedGif) {
-        if let Some(variant) = select_media_variant(media) {
-            return Some((variant.url.clone(), Some(variant.content_type)));
-        }
+    if matches!(media.kind, MediaKind::Video | MediaKind::AnimatedGif)
+        && let Some(variant) = select_media_variant(media)
+    {
+        return Some((variant.url.clone(), Some(variant.content_type)));
     }
 
     media.preview_image_url.clone().map(|url| (url, None))
@@ -1624,15 +1632,15 @@ fn build_profile_metadata(user: &User, username: &Username) -> Metadata {
     };
     metadata = metadata.about(&about);
 
-    if let Some(url) = &user.profile_image_url {
-        if let Ok(parsed) = url.as_str().parse() {
-            metadata = metadata.picture(parsed);
-        }
+    if let Some(url) = &user.profile_image_url
+        && let Ok(parsed) = url.as_str().parse()
+    {
+        metadata = metadata.picture(parsed);
     }
-    if let Some(url) = &user.url {
-        if let Ok(parsed) = url.as_str().parse() {
-            metadata = metadata.website(parsed);
-        }
+    if let Some(url) = &user.url
+        && let Ok(parsed) = url.as_str().parse()
+    {
+        metadata = metadata.website(parsed);
     }
 
     metadata
@@ -1800,11 +1808,10 @@ async fn post_tweet_to_nostr(
         .with_context(|| format!("Failed to parse tweet ID from {tweet_url_or_id}"))?;
     let storage = FileStorage::new(data_dir)?;
 
-    if let Some(existing) = storage.load_nostr_event_info(&tweet_id).await? {
-        if !force {
-            let _ = existing;
-            return Ok(());
-        }
+    if let Some(_existing) = storage.load_nostr_event_info(&tweet_id).await?
+        && !force
+    {
+        return Ok(());
     }
 
     let twitter = if let Some(token) = bearer_token {
@@ -2296,33 +2303,27 @@ async fn run_daemon_loop(state: DaemonState) -> Result<()> {
 
         for username in &users_to_poll {
             match process_user(state.clone(), username.clone()).await {
-                Ok(()) => {
-                    debug!("Successfully processed user: {username}");
-                    let mut user_states = state.user_states.write().await;
-                    if let Some(user_state) = user_states.get_mut(username) {
-                        user_state.consecutive_failures = 0;
-                        user_state.last_success_time = Some(Instant::now());
-                    }
-                }
+                Ok(()) => debug!("Successfully processed user: {username}"),
                 Err(e) => {
                     error!("Error processing user @{username}: {e}");
-                    let mut user_states = state.user_states.write().await;
-                    if let Some(user_state) = user_states.get_mut(username) {
-                        user_state.consecutive_failures += 1;
-                        match user_state.consecutive_failures {
-                            1..=2 => warn!(
-                                "User @{username} failed {failures} times, retrying with backoff",
-                                failures = user_state.consecutive_failures
-                            ),
-                            3..=5 => error!(
-                                "User @{username} failed {failures} times, increasing backoff",
-                                failures = user_state.consecutive_failures
-                            ),
-                            _ => error!(
-                                "User @{username} failed {failures} times, manual intervention may be required",
-                                failures = user_state.consecutive_failures
-                            ),
+                    let failures = state
+                        .user_states
+                        .read()
+                        .await
+                        .get(username)
+                        .map(|user_state| user_state.consecutive_failures)
+                        .unwrap_or_default();
+                    match failures {
+                        1..=2 => {
+                            warn!("User @{username} failed {failures} times, retrying with backoff")
                         }
+                        3..=5 => {
+                            error!("User @{username} failed {failures} times, increasing backoff")
+                        }
+                        6.. => error!(
+                            "User @{username} failed {failures} times, manual intervention may be required"
+                        ),
+                        0 => {}
                     }
 
                     if let Some(twitter_err) = e.downcast_ref::<TwitterAdapterError>() {
@@ -2340,12 +2341,6 @@ async fn run_daemon_loop(state: DaemonState) -> Result<()> {
         }
 
         let poll_duration = poll_start.elapsed();
-        let mut stats_guard = state.stats.write().await;
-        stats_guard.total_polls += 1;
-        if !users_to_poll.is_empty() {
-            stats_guard.successful_polls += 1;
-        }
-        drop(stats_guard);
 
         info!(
             "Polling cycle completed in {duration:.2}s - processed {user_count} users",
@@ -2442,14 +2437,12 @@ async fn process_user(state: DaemonState, username: String) -> Result<()> {
         let user_state = user_states.get(&username).cloned();
         drop(user_states);
 
-        if let Some(user_state) = user_state {
-            if !user_state.profile_posted
-                || should_refresh_profile(user_state.last_profile_post_time)
-            {
-                if let Ok(username_parsed) = Username::parse(&username) {
-                    let _ = ensure_user_profile_posted(&state, &username_parsed).await;
-                }
-            }
+        if let Some(user_state) = user_state
+            && (!user_state.profile_posted
+                || should_refresh_profile(user_state.last_profile_post_time))
+            && let Ok(username_parsed) = Username::parse(&username)
+        {
+            let _ = ensure_user_profile_posted(&state, &username_parsed).await;
         }
     }
 
@@ -3252,6 +3245,25 @@ mod tests {
         let keys = Keys::generate();
         let found = find_existing_event(&client, &tweet_id, &keys).await?;
         assert!(found.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn clear_cache_removes_nested_nostr_state() -> Result<()> {
+        let temp = TempDir::new()?;
+        std::fs::write(temp.path().join("tweet.json"), "{}")?;
+
+        let nostr_dir = temp.path().join("nostr");
+        std::fs::create_dir_all(&nostr_dir)?;
+        std::fs::write(nostr_dir.join("123.json"), "{}")?;
+
+        let events_dir = temp.path().join("nostr_events");
+        std::fs::create_dir_all(&events_dir)?;
+        std::fs::write(events_dir.join("event.json"), "{}")?;
+
+        clear_cache(temp.path(), true)?;
+
+        assert!(std::fs::read_dir(temp.path())?.next().is_none());
         Ok(())
     }
 }

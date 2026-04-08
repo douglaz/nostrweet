@@ -395,12 +395,11 @@ fn find_workspace_root() -> Result<PathBuf> {
 
     for _ in 0..6 {
         let cargo_toml = current.join("Cargo.toml");
-        if cargo_toml.exists() {
-            if let Ok(contents) = std::fs::read_to_string(&cargo_toml) {
-                if contents.contains("[workspace]") {
-                    return Ok(current.to_path_buf());
-                }
-            }
+        if cargo_toml.exists()
+            && let Ok(contents) = std::fs::read_to_string(&cargo_toml)
+            && contents.contains("[workspace]")
+        {
+            return Ok(current.to_path_buf());
         }
 
         let Some(parent) = current.parent() else {

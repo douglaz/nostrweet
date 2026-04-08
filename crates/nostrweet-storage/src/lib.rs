@@ -96,7 +96,6 @@ impl<C: Clock> FileStorage<C> {
     }
 
     fn find_existing_tweet_path(&self, id: &TweetId) -> Result<Option<PathBuf>> {
-        let id_str = id.as_str();
         for entry in fs::read_dir(&self.data_dir).with_context(|| {
             format!(
                 "Failed to read data directory {data_dir:?}",
@@ -111,8 +110,11 @@ impl<C: Clock> FileStorage<C> {
             if path.extension() != Some(OsStr::new("json")) {
                 continue;
             }
-            if let Some(filename) = path.file_name().and_then(|name| name.to_str())
-                && filename.contains(id_str)
+            let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if Self::split_tweet_filename(filename)
+                .is_some_and(|(_, tweet_id)| tweet_id == id.as_str())
             {
                 return Ok(Some(path));
             }
@@ -120,25 +122,31 @@ impl<C: Clock> FileStorage<C> {
         Ok(None)
     }
 
-    fn tweet_id_from_filename(filename: &str, username: &Username) -> Option<TweetId> {
-        if filename.ends_with("_profile.json") {
-            return None;
-        }
-        if !filename.contains(username.as_str()) {
-            return None;
-        }
-
+    fn split_tweet_filename(filename: &str) -> Option<(&str, &str)> {
         let stem = filename.strip_suffix(".json")?;
         let (date_part, rest) = stem.split_once('_')?;
         if date_part.len() != 8 || !date_part.chars().all(|c| c.is_ascii_digit()) {
             return None;
         }
-        let (time_part, _) = rest.split_once('_')?;
+
+        let (time_part, remainder) = rest.split_once('_')?;
         if time_part.len() != 6 || !time_part.chars().all(|c| c.is_ascii_digit()) {
             return None;
         }
 
-        let tweet_id = stem.rsplit('_').next()?;
+        let (username, tweet_id) = remainder.rsplit_once('_')?;
+        if username.is_empty() || tweet_id == "profile" {
+            return None;
+        }
+        TweetId::from_digits(tweet_id).ok()?;
+        Some((username, tweet_id))
+    }
+
+    fn tweet_id_from_filename(filename: &str, username: &Username) -> Option<TweetId> {
+        let (filename_username, tweet_id) = Self::split_tweet_filename(filename)?;
+        if filename_username != username.as_str() {
+            return None;
+        }
         TweetId::from_digits(tweet_id).ok()
     }
 
@@ -563,6 +571,45 @@ mod tests {
 
         let loaded = storage.load_latest_user_profile(&username).await?;
         assert_eq!(loaded, Some(late));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn save_tweet_ignores_matching_profile_file() -> Result<()> {
+        let temp = TempDir::new()?;
+        let storage = FileStorage::with_clock(temp.path(), FixedClock::new(1))?;
+        let profile = sample_user("tester", "123")?;
+
+        let profile_path = temp.path().join("20230101120000_tester_123.json");
+        storage.write_json(&profile_path, &profile, "user profile")?;
+
+        let tweet = sample_tweet("123", "tester", "2023-01-01T00:00:00Z")?;
+        let stored = storage.save_tweet(&tweet).await?;
+        assert!(stored.location.contains("20230101_000000_tester_123.json"));
+
+        let loaded = storage.load_tweet(&tweet.id).await?;
+        assert_eq!(loaded, Some(tweet));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn find_latest_tweet_id_for_user_matches_exact_username() -> Result<()> {
+        let temp = TempDir::new()?;
+        let storage = FileStorage::with_clock(temp.path(), FixedClock::new(1))?;
+
+        fs::write(temp.path().join("20230101_000000_test_100.json"), "{}")?;
+        fs::write(
+            temp.path().join("20230101_000000_test_extra_999.json"),
+            "{}",
+        )?;
+
+        let latest = storage
+            .find_latest_tweet_id_for_user(&Username::parse("test")?)
+            .await?;
+        assert_eq!(
+            latest.map(|id| id.as_str().to_string()),
+            Some("100".to_string())
+        );
         Ok(())
     }
 }
