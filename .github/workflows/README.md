@@ -63,8 +63,8 @@ All workflows use Nix for:
 - **Development shell**: Consistent tooling via `nix develop -c`
 
 ### Key Nix Actions Used
-- `DeterminateSystems/nix-installer-action@v9`: Installs Nix
-- `DeterminateSystems/magic-nix-cache-action@v2`: Speeds up builds with caching
+- `DeterminateSystems/nix-installer-action@v22`: Installs Nix
+- `DeterminateSystems/magic-nix-cache-action@v13`: Speeds up builds with caching
 
 ### Common Commands
 ```bash

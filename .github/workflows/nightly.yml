@@ -17,7 +17,7 @@ jobs:
       should_run: ${{ steps.check.outputs.should_run }}
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       
@@ -52,13 +52,13 @@ jobs:
             binary-name: nostrweet
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@v9
+        uses: DeterminateSystems/nix-installer-action@v22
 
       - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v2
+        uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -98,7 +98,7 @@ jobs:
       contents: write
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Download all artifacts
         uses: actions/download-artifact@v4
