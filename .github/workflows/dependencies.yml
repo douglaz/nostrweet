@@ -20,9 +20,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
 
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
-
       - name: Update flake inputs
         run: nix flake update
 
@@ -76,9 +73,6 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Install cargo-audit
         run: nix develop -c cargo install --locked cargo-audit

@@ -24,9 +24,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
 
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
-
       - name: Build release binary
         run: nix develop -c cargo build --release
 
@@ -196,9 +193,6 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Build release binary
         run: nix develop -c cargo build --release

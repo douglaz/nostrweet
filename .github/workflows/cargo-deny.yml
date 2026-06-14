@@ -29,9 +29,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
 
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
-
       - name: Install cargo-deny
         run: |
           nix develop -c cargo install --locked cargo-deny
