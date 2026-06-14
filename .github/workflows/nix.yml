@@ -26,9 +26,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
 
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
-
       - name: Check flake
         run: |
           echo "🔍 Checking Nix flake..."
@@ -59,9 +56,6 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Enter development shell and build
         run: |
@@ -95,9 +89,6 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Test development shell environment
         run: |
@@ -166,9 +157,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
 
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
-
       - name: Test flake on Linux
         run: |
           echo "🧪 Testing Nix flake on Linux..."
@@ -198,9 +186,6 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v22
-
-      - name: Setup Nix cache
-        uses: DeterminateSystems/magic-nix-cache-action@v13
 
       - name: Check if lock file can be updated
         run: |

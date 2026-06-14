@@ -64,7 +64,6 @@ All workflows use Nix for:
 
 ### Key Nix Actions Used
 - `DeterminateSystems/nix-installer-action@v22`: Installs Nix
-- `DeterminateSystems/magic-nix-cache-action@v13`: Speeds up builds with caching
 
 ### Common Commands
 ```bash
